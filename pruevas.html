@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <title>Burbuja de Chat Curvada</title>
+  <style>
+    .chat-bubble {
+      background-color: #316CFF;
+      color: white;
+      padding: 10px 20px;
+      border-radius: 10px;
+      display: inline-block;
+      font-family: Arial, sans-serif;
+      font-weight: bold;
+      font-size: 14px;
+      position: relative;
+      max-width: 300px;
+    }
+
+    .chat-bubble::after {
+        content: "";
+        position: absolute;  
+        right: -4px;
+        top: 50%;
+        transform: translateY(-15px);
+        width: 10px;
+        height: 10px;
+        background-color: #316CFF;
+        clip-path: path("M 0 0 Q 0 5 10 5 Q 8 12 0 5 Z");
+    }
+
+    body {
+      background-color: #000;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      height: 100vh;
+      margin: 0;
+    }
+  </style>
+</head>
+<body>
+  <div class="chat-bubble">
+    Click on chat icons to change them.
+  </div>
+</body>
+</html>
