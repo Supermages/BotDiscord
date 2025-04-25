@@ -1,0 +1,23 @@
+{
+    "Chat": {
+        "titulo": "test-bot",
+        "personajes": [
+            {
+                "_id": "narrador",
+                "nombre": "Narrador",
+                "DerOIzq": "D",
+                "Avatar": "https://cdn.discordapp.com/avatars/1365414112984567906/0f7e98004f47de5b79ac1c0c2f6cb74a.png?size=1024"
+            }
+        ],
+        "mensajes": [
+            {
+                "Personaje": "narrador",
+                "Mensaje": "e"
+            },
+            {
+                "Personaje": "narrador",
+                "Mensaje": "e"
+            }
+        ]
+    }
+}
