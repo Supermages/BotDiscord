@@ -1,37 +1,77 @@
 <!DOCTYPE html>
 <html lang="es">
-
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Chat</title>
-    <style>
-        body {
-            background-color: rgb(18 18 18);
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            height: 100vh;
-            margin: 0;
-            font-family: Arial, sans-serif;
-        }
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Chat</title>
+  <style>
+    @font-face {
+      font-family: 'HongMengTi';
+      src: url('fuentes/印品鸿蒙体.ttf') format('truetype');
+      font-weight: normal;
+      font-style: normal;
+    }
 
-        .chat-container {
-            width: 400px;
-            padding: 10px;
-            background: linear-gradient(to bottom, #000000, #121212);
-            border: #000000 solid 1px;
-            border-radius: 10px;
-            display: flex;
-            flex-direction: column;
-            gap: 15px;
-        }
-    </style>
+    html, body {
+      margin: 0;
+      padding: 0;
+      background-color: rgb(18, 18, 18);
+      font-family: "HongMengTi", sans-serif;
+      min-height: 100vh;
+      overflow-y: auto; /* Permite scroll */
+    }
+
+    .wrapper {
+      display: flex;
+      justify-content: center;
+      padding: 40px 0;
+    }
+
+    .chat-container {
+      width: 400px;
+      padding: 10px;
+      background: linear-gradient(to bottom, #000000, #121212);
+      border: #000000 solid 1px;
+      border-radius: 10px;
+      display: flex;
+      flex-direction: column;
+      gap: 15px;
+    }
+
+    svg {
+      color: rgb(49 49 49);
+      width: 20px;
+      height: 20px;
+    }
+
+    .title-div {
+      display: flex;
+      align-items: center;
+      gap: 5px;
+    }
+
+    hr {
+      border: none;
+      height: 1px;
+      background-color: rgb(49 49 49);
+      margin: 0;
+    }
+  </style>
 </head>
-
 <body>
-    <div class="chat-container">
-    </div>
-</body>
+  <script type="module" src="mensajes.js"></script>
 
+  <div class="wrapper">
+    <div class="chat-container">
+      <div class="title-div">
+        <svg stroke="currentColor" fill="currentColor" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg">
+          <path d="M475.22 206.52c-10.34-48.65-37.76-92.93-77.22-124.68A227.4 227.4 0 0 0 255.82 32C194.9 32 138 55.47 95.46 98.09 54.35 139.33 31.82 193.78 32 251.37a215.66 215.66 0 0 0 35.65 118.76l4.35 6.05L48 480l114.8-28.56s2.3.77 4 1.42 16.33 6.26 31.85 10.6c12.9 3.6 39.74 9 60.77 9 59.65 0 115.35-23.1 156.83-65.06C457.36 365.77 480 310.42 480 251.49a213.5 213.5 0 0 0-4.78-44.97zM160 288a32 32 0 1 1 32-32 32 32 0 0 1-32 32zm96 0a32 32 0 1 1 32-32 32 32 0 0 1-32 32zm96 0a32 32 0 1 1 32-32 32 32 0 0 1-32 32z"/>
+        </svg>
+        <span style="color: white; font-size: 16px;">Chat</span>
+      </div>
+      <hr>
+      <!-- Aquí puedes agregar muchos mensajes para probar el scroll -->
+    </div>
+  </div>
+</body>
 </html>
