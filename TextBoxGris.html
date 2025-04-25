@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="es">
+
+<head>
+  <meta charset="UTF-8">
+  <title>Burbuja de Chat Curvada</title>
+  <style>
+    @font-face {
+      font-family: 'HongMengTi';
+      src: url('fuentes/印品鸿蒙体.ttf') format('truetype');
+      font-weight: normal;
+      font-style: normal;
+    }
+
+    .chat-bubble {
+      background-color: #2C58E2;
+      color: white;
+      padding: 5px 10px;
+      border-radius: 12.5px;
+      display: inline-block;
+      font-family: Arial, sans-serif;
+      font-size: 14px;
+      position: relative;
+      max-width: 300px;
+      font-family: "HongMengTi";
+      ;
+    }
+
+    .chat-bubble::after {
+      content: "";
+      position: absolute;
+      right: -4px;
+      top: 5px;
+      width: 10px;
+      height: 10px;
+      background-color: #2C58E2;
+      clip-path: path("M 0 0 Q 0 5 10 3 Q 8 12 0 5 Z");
+    }
+
+    body {
+      background-color: #000;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      height: 100vh;
+      margin: 0;
+    }
+  </style>
+</head>
+
+<body>
+  <div class="chat-bubble">
+   Hola soy pedrito juanez :DOCTYPE, tengo cuarenta phds :D
+</body>
+
+</html>
