@@ -1,40 +1,14 @@
 <!DOCTYPE html>
 <html lang="es">
-
 <head>
   <meta charset="UTF-8">
-  <title>Burbuja de Chat Curvada</title>
+  <title>Burbuja de Chat Invertida</title>
   <style>
     @font-face {
       font-family: 'HongMengTi';
       src: url('fuentes/印品鸿蒙体.ttf') format('truetype');
       font-weight: normal;
       font-style: normal;
-    }
-
-    .chat-bubble {
-      background-color: white;
-      color: black;
-      padding: 5px 10px;
-      border-radius: 12.5px;
-      display: inline-block;
-      font-family: Arial, sans-serif;
-      font-size: 14px;
-      position: relative;
-      max-width: 300px;
-      font-family: "HongMengTi";
-      ;
-    }
-
-    .chat-bubble::after {
-      content: "";
-      position: absolute;
-      right: -4px;
-      top: 5px;
-      width: 10px;
-      height: 10px;
-      background-color: white;
-      clip-path: path("M 0 0 Q 0 5 10 3 Q 8 12 0 5 Z");
     }
 
     body {
@@ -45,12 +19,59 @@
       height: 100vh;
       margin: 0;
     }
+
+    .chat-box {
+      display: flex;
+      justify-content: left;
+      align-items: flex-start;
+      max-width: 400px;
+    }
+
+    .img-container {
+      padding: 0px 7px 0px 0px;
+    }
+
+    img {
+      width: 35px;
+      height: 35px;
+      border-radius: 50%;
+      box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
+    }
+
+    .chat-bubble {
+      background-color: white;
+      color: black;
+      padding: 5px 10px;
+      border-radius: 12.5px;
+      display: inline-block;
+      font-family: "HongMengTi", Arial, sans-serif;
+      font-size: 14px;
+      position: relative;
+      max-width: 300px;
+      top: 5px;
+    }
+
+    .chat-bubble::after {
+      content: "";
+      position: absolute;
+      left: -4px;
+      top: 5px;
+      width: 10px;
+      height: 10px;
+      background-color: white;
+      clip-path: path("M 10 0 Q 10 5 0 3 Q 2 12 10 5 Z");
+    }
   </style>
 </head>
-
 <body>
-  <div class="chat-bubble">
-   Hola soy pedrito juanez
+  <div class="chat-box">
+    <div class="img-container">
+      <img src="https://cdn.pixabay.com/photo/2015/10/05/22/37/blank-profile-picture-973460_1280.png"
+        alt="Imagen de perfil">
+    </div>
+    <div class="chat-bubble">
+      Hola soy pedrito juanez :DOCTYPE, tengo cuarenta phds :D
+    </div>
+  </div>
 </body>
-
 </html>
