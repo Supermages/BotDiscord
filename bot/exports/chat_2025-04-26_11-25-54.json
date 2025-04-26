@@ -3,7 +3,7 @@
         "titulo": "test-bot",
         "personajes": [
             {
-                "_id": 1365414112984567906,
+                "_id": "1365414112984567906",
                 "nombre": "Narrador",
                 "DerOIzq": "I",
                 "Avatar": "https://cdn.discordapp.com/avatars/1365414112984567906/0f7e98004f47de5b79ac1c0c2f6cb74a.png?size=1024"
@@ -11,15 +11,11 @@
         ],
         "mensajes": [
             {
-                "Personaje": 1365414112984567906,
-                "Mensaje": "e"
-            },
-            {
-                "Personaje": 1365414112984567906,
+                "Personaje": "1365414112984567906",
                 "Mensaje": "🎂🏙️💖🫂🎉⚖️✅🛡️🛡️"
             },
             {
-                "Personaje": 1365414112984567906,
+                "Personaje": "1365414112984567906",
                 "Mensaje": "<:test:1365443806979297450>"
             }
         ]

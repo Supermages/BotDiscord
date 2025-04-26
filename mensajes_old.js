@@ -18,10 +18,9 @@ style.textContent = `
         font-size: 14px;
         max-width: 300px;
         position: relative;
-        top: 5px;
     }
 
-    /*.chat-bubble.blue {
+    .chat-bubble.blue {
         background-color: #2C58E2;
         color: white;
     }
@@ -51,7 +50,7 @@ style.textContent = `
         height: 10px;
         background-color: white;
         clip-path: path("M 10 0 Q 10 5 0 3 Q 2 12 10 5 Z");
-    }*/
+    }
 
     .img-container img {
         width: 35px;
@@ -63,7 +62,7 @@ style.textContent = `
 document.head.appendChild(style);
 
 // Modificar la clase Chat para aplicar la alineación
-/*class ChatOld {
+class Chat {
     constructor(containerSelector) {
         this.container = document.querySelector(containerSelector);
         this.isNextBlue = true; // Alternar entre azul y gris
@@ -97,82 +96,12 @@ document.head.appendChild(style);
         this.container.appendChild(messageElement);
         this.isNextBlue = !this.isNextBlue; // Alternar el color
     }
-}*/
-class Chat {
-    constructor(containerSelector = '.chat-container', color = 'blue', colorText =  imgSrc = 'https://cdn.pixabay.com/photo/2015/10/05/22/37/blank-profile-picture-973460_1280.png', derecha = true, user) {
-        this.container = document.querySelector(containerSelector);
-        this.color = color;
-        this.imgSrc = imgSrc;
-        this.derecha = derecha;
-        this.user = user;
-        style = `
-            .chat-bubble.${user} {
-                background-color:${color};
-                color: white;
-            }
-        `;
-        if(derecha){
-            style +=`
-            .chat-bubble.${user}::after {
-                content: "";
-                position: absolute;
-                right: -4px;
-                top: 5px;
-                width: 10px;
-                height: 10px;
-                background-color:${color};
-                clip-path: path("M 0 0 Q 0 5 10 3 Q 8 12 0 5 Z");
-            }
-            `;
-        } else {
-            style +=`
-            .chat-bubble.${user}::after {
-                content: "";
-                position: absolute;
-                right: -4px;
-                top: 5px;
-                width: 10px;
-                height: 10px;
-                background-color:${color};
-                clip-path: path("M 0 0 Q 0 5 10 3 Q 8 12 0 5 Z");
-            }
-            `;
-        }
-        document.head.appendChild(style);
-    }
-
-    addMessage(text) {
-        const messageElement = document.createElement('div');
-        messageElement.classList.add('chat-box');
-
-        if (this.derecha) {
-            messageElement.classList.add('blue'); // Añadir clase para alinear a la derecha
-            messageElement.innerHTML = `
-                <div class="chat-bubble ${user}">
-                    ${text}
-                </div>
-                <div class="img-container">
-                    <img src="${this.imgSrc}" alt="Imagen de perfil">
-                </div>
-            `;
-        } else {
-            messageElement.innerHTML = `
-                <div class="img-container">
-                    <img src="${this.imgSrc}" alt="Imagen de perfil">
-                </div>
-                <div class="chat-bubble ${user}">
-                    ${text}
-                </div>
-            `;
-        }
-
-        this.container.appendChild(messageElement);
-    }
 }
+
 // Ejemplo de uso
 document.addEventListener('DOMContentLoaded', () => {
-    const chat = new Chat(containerSelector = '.chat-container', color = 'white', imgSrc = 'https://cdn.pixabay.com/photo/2015/10/05/22/37/blank-profile-picture-973460_1280.png', derecha = true, user);
-    const chat2 = new Chat();
+    const chat = new Chat('.chat-container');
+
     // Añadir mensajes de ejemplo
     chat.addMessage('Hola, este es un mensaje azul.');
     chat.addMessage('Hola, este es un mensaje gris.');
