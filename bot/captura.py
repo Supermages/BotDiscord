@@ -1,7 +1,7 @@
 import asyncio
 import datetime
 import json
-from playwright.async_api import async_playwright, TimeoutError as PlaywrightTimeout
+from playwright.async_api import async_playwright
 
 URL_PAGINA = "https://supermages.github.io/BotDiscord/"
 
@@ -10,62 +10,58 @@ async def generar_captura(chat_json):
         browser = await p.chromium.launch()
         page = await browser.new_page()
 
-        try:
-            await page.goto(URL_PAGINA, timeout=15000)
-            await page.wait_for_selector('.chat-container', timeout=10000)
-            await page.wait_for_function('window.Chat !== undefined', timeout=10000)
+        # Después de ir a la página y esperar selector
+        await page.goto(URL_PAGINA)
+        await page.wait_for_selector('.chat-container')
 
-            # Limpiar mensajes anteriores
-            await page.evaluate('''
-                const container = document.querySelector('.chat-container');
-                container.innerHTML = container.children[0].outerHTML + container.children[1].outerHTML;
-            ''')
 
-            # Insertar los mensajes
-            for personaje in chat_json["Chat"]["personajes"]:
-                personaje_id = personaje["_id"]
-                avatar = personaje["Avatar"]
-                derecha = personaje["DerOIzq"] == "D"
-                color = "#2C58E2" if derecha else "white"
-                color_text = "white" if derecha else "black"
+        # Limpiar mensajes anteriores
+        await page.evaluate('''
+            const container = document.querySelector('.chat-container');
+            container.innerHTML = container.children[0].outerHTML + container.children[1].outerHTML;
+        ''')
 
-                mensajes = [m["Mensaje"] for m in chat_json["Chat"]["mensajes"] if m["Personaje"] == personaje_id]
+        # Insertar cada mensaje de manera segura
+        for personaje in chat_json["Chat"]["personajes"]:
+            personaje_id = personaje["_id"]
+            avatar = personaje["Avatar"]
+            derecha = personaje["DerOIzq"] == "D"
 
-                for mensaje in mensajes:
-                    await page.evaluate('''
-                        const chat = new Chat('.chat-container', color, colorText, avatar, derecha, user);
-                        chat.addMessage(mensaje);
-                    ''', {
-                        "color": color,
-                        "colorText": color_text,
-                        "avatar": avatar,
-                        "derecha": derecha,
-                        "user": personaje_id,
-                        "mensaje": mensaje
-                    })
+            color = "#2C58E2" if derecha else "white"
+            color_text = "white" if derecha else "black"
 
-            # Embellecer el contenedor
-            await page.evaluate('''
-                const container = document.querySelector('.chat-container');
-                container.style.borderRadius = '20px';
-                container.style.overflow = 'hidden';
-                container.style.padding = '20px';
-                container.style.boxShadow = '0 0 15px rgba(0,0,0,0.5)';
-            ''')
+            mensajes = [m["Mensaje"] for m in chat_json["Chat"]["mensajes"] if m["Personaje"] == personaje_id]
 
-            await page.wait_for_timeout(500)
+            for mensaje in mensajes:
+                await page.evaluate('''
+                    window.chat = new Chat('.chat-container', color, colorText, avatar, derecha, user);
+                    chat.addMessage(mensaje);
+                ''', {
+                    "color": color,
+                    "colorText": color_text,
+                    "avatar": avatar,
+                    "derecha": derecha,
+                    "user": personaje_id,
+                    "mensaje": mensaje
+                })
 
-            # Capturar solo el chat
-            chat_container = await page.query_selector('.chat-container')
-            timestamp = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-            filename = f"exports/chat_{timestamp}.png"
+        # Añadir borde visual al contenedor
+        await page.evaluate('''
+            const container = document.querySelector('.chat-container');
+            container.style.borderRadius = '20px';
+            container.style.overflow = 'hidden';
+            container.style.padding = '20px';
+            container.style.boxShadow = '0 0 15px rgba(0,0,0,0.5)';
+        ''')
 
-            await chat_container.screenshot(path=filename)
+        await page.wait_for_timeout(500)
 
-            await browser.close()
+        chat_container = await page.query_selector('.chat-container')
+        timestamp = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+        filename = f"exports/chat_{timestamp}.png"
 
-            return filename
+        await chat_container.screenshot(path=filename)
 
-        except PlaywrightTimeout:
-            await browser.close()
-            raise Exception("❌ Error: No se pudo cargar la página o la clase Chat en el tiempo esperado.")
+        await browser.close()
+
+        return filename

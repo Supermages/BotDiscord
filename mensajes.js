@@ -156,12 +156,12 @@ class Chat {
         this.container.appendChild(messageElement);
     }
 }
-
+window.Chat = Chat;
 // Ejemplo de uso
 document.addEventListener('DOMContentLoaded', () => {
     document.getElementById("title").textContent = "Chat";
-    const chat = new Chat('.chat-container', '#2C58E2', 'white', 'https://cdn.pixabay.com/photo/2015/10/05/22/37/blank-profile-picture-973460_1280.png', true, 'user1');
-    const chat2 = new Chat(
+    window.chat = new Chat('.chat-container', '#2C58E2', 'white', 'https://cdn.pixabay.com/photo/2015/10/05/22/37/blank-profile-picture-973460_1280.png', true, 'user1');
+    window.chat2 = new Chat(
         '.chat-container', // Selector del contenedor
         '#FF5733',         // Color de fondo del mensaje
         'black',           // Color del texto
@@ -169,7 +169,7 @@ document.addEventListener('DOMContentLoaded', () => {
         false,             // Alineación: `true` para derecha, `false` para izquierda
         'user2'            // Clase única para identificar al usuario
     );
-    const chat3 = new Chat(
+    window.chat3 = new Chat(
         '.chat-container', // Selector del contenedor
         'white',         // Color de fondo del mensaje
         'black',           // Color del texto
@@ -183,6 +183,6 @@ document.addEventListener('DOMContentLoaded', () => {
     chat.addMessage('¿Cómo estás?');
     chat2.addMessage('Estoy bien, gracias. ¿Y tú? 😀');
     chat3.addMessage('Estoy bien, gracias. ¿Y tú?');
-    chat.addMessage('¡Genial! ¿Qué tal tu día?');
+    chat.addMessage('¡Genial! ¿Qué tal tu día? fdsa fdsaf dsaf dsa');
     
 });
