@@ -1,6 +1,6 @@
 import sqlite3
 
-DB_FILE = 'botdiscord.sqlite'
+DB_FILE = 'eridubot.sqlite'
 
 def inicializar_base():
     with sqlite3.connect(DB_FILE) as conn:

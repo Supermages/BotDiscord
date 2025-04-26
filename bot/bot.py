@@ -58,7 +58,6 @@ async def generar_chat(interaction: discord.Interaction, cantidad: int = 20):
     channel = interaction.channel
     messages = [msg async for msg in channel.history(limit=cantidad)]
 
-    personajes = {}
     mensajes_json = []
 
     for msg in reversed(messages):
@@ -86,13 +85,6 @@ async def generar_chat(interaction: discord.Interaction, cantidad: int = 20):
             if avatar_db != avatar_url:
                 guardar_personaje(personaje_id, personaje_nombre, lado, avatar_url)
 
-        personajes[personaje_id] = {
-            "_id": personaje_id,
-            "nombre": personaje_nombre,
-            "DerOIzq": lado,
-            "Avatar": avatar_url
-        }
-
         mensajes_json.append({
             "Personaje": personaje_id,
             "Mensaje": msg.content
@@ -101,7 +93,6 @@ async def generar_chat(interaction: discord.Interaction, cantidad: int = 20):
     chat_json = {
         "Chat": {
             "titulo": channel.name,
-            "personajes": list(personajes.values()),
             "mensajes": mensajes_json
         }
     }

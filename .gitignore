@@ -2,3 +2,5 @@ API_Bot.txt
 URL_Instalacion_Bot.txt
 bot/exportaciones
 bot/__pycache__
+bot/botdiscord.sqlite
+bot/eridubot.sqlite
