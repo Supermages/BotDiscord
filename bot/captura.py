@@ -4,7 +4,7 @@ import json
 from playwright.async_api import async_playwright
 from db import obtener_personaje  # Importar la función para acceder a la base de datos
 
-URL_PAGINA = "http://localhost:5500/"
+URL_PAGINA = "https://supermages.github.io/BotDiscord/"
 
 async def generar_captura(chat_json):
     async with async_playwright() as p:
@@ -27,6 +27,12 @@ async def generar_captura(chat_json):
             const container = document.querySelector('.chat-container');
             container.innerHTML = container.children[0].outerHTML + container.children[1].outerHTML;
         ''')
+
+        # Establecer el título del chat
+        await page.evaluate('''
+            const container = document.querySelector('.chat-container');
+            const title = document.getElementById('title');
+            title.innerHTML = "''' + chat_json["Chat"]["titulo"] + '''";''')
 
         # Insertar cada mensaje de manera segura
         for mensaje in chat_json["Chat"]["mensajes"]:
