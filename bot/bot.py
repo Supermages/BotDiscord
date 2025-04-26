@@ -7,7 +7,7 @@ from captura import generar_captura
 
 # Constantes
 TUPPERBOX_WEBHOOK_ID = 1365408923808563361
-EXPORT_FOLDER = "exports"
+EXPORT_FOLDER = "exportaciones"
 
 # Inicializar base de datos y carpetas
 inicializar_base()
@@ -66,8 +66,8 @@ async def generar_chat(interaction: discord.Interaction, cantidad: int = 20):
             continue
 
         personaje_nombre = msg.author.display_name
-        personaje_id = str(msg.author.id)
-        avatar_url = str(msg.author.avatar.url) if msg.author.avatar else ""
+        personaje_id = str(msg.author.name) + str(msg.author.id)
+        avatar_url = str(msg.author.avatar.url) if msg.author.avatar else "https://cdn.pixabay.com/photo/2015/10/05/22/37/blank-profile-picture-973460_1280.png"
 
         personaje = obtener_personaje(personaje_id)
 
@@ -109,7 +109,10 @@ async def generar_chat(interaction: discord.Interaction, cantidad: int = 20):
     # Crear imagen usando captura
     imagen_path = await generar_captura(chat_json)
 
-    await interaction.followup.send(file=discord.File(imagen_path), content="✅ ¡Aquí tienes tu chat generado!")
+    await interaction.followup.send(
+        file=discord.File(imagen_path), 
+        content="✅ ¡Aquí tienes tu chat generado!",
+        ephemeral=False)
 
 @bot.event
 async def on_ready():
