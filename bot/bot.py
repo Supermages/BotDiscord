@@ -68,7 +68,7 @@ async def generar_chat(interaction: discord.Interaction, cantidad: int = 20, tit
             continue
 
         personaje_nombre = msg.author.display_name
-        personaje_id = str(msg.author.name) + str(msg.author.id)
+        personaje_id = str(msg.author.name).replace(" ", "_") + str(msg.author.id)
         avatar_url = str(msg.author.avatar.url) if msg.author.avatar else "https://cdn.pixabay.com/photo/2015/10/05/22/37/blank-profile-picture-973460_1280.png"
 
         personaje = obtener_personaje(personaje_id)

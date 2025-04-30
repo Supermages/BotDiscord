@@ -10,7 +10,7 @@ def inicializar_base():
                 personaje_id TEXT PRIMARY KEY,
                 nombre TEXT NOT NULL,
                 lado TEXT NOT NULL,
-                avatar_url TEXT
+                avatar_url TEXT,
             )
         ''')
         conn.commit()
@@ -28,4 +28,15 @@ def guardar_personaje(personaje_id, nombre, lado, avatar_url):
             INSERT OR REPLACE INTO Personaje_Tabla (personaje_id, nombre, lado, avatar_url)
             VALUES (?, ?, ?, ?)
         ''', (personaje_id, nombre, lado, avatar_url))
+        conn.commit()
+
+def actualizar_personaje(personaje_id, lado=None, color=None, color_texto=None):
+    with sqlite3.connect(DB_FILE) as conn:
+        cur = conn.cursor()
+        if lado:
+            cur.execute('UPDATE Personaje_Tabla SET lado = ? WHERE personaje_id = ?', (lado, personaje_id))
+        if color:
+            cur.execute('UPDATE Personaje_Tabla SET color_background = ? WHERE personaje_id = ?', (color, personaje_id))
+        if color_texto:
+            cur.execute('UPDATE Personaje_Tabla SET color_text = ? WHERE personaje_id = ?', (color_texto, personaje_id))
         conn.commit()
