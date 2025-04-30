@@ -1,8 +1,9 @@
+
 import asyncio
 import datetime
 import json
 from playwright.async_api import async_playwright
-from db import obtener_personaje  # Importar la función para acceder a la base de datos
+from db import obtener_personaje
 
 URL_PAGINA = "https://supermages.github.io/BotDiscord/"
 
@@ -11,57 +12,46 @@ async def generar_captura(chat_json):
         browser = await p.chromium.launch()
         page = await browser.new_page()
 
-        # Configurar un manejador de eventos para capturar los logs de la consola de JavaScript
         async def handle_console_message(msg):
-            # Imprimir los logs de JavaScript en la consola de Python
             print(f"JS Log: {msg.text}")
 
         page.on("console", handle_console_message)
 
-        # Después de ir a la página y esperar selector
         await page.goto(URL_PAGINA)
         await page.wait_for_selector('.chat-container')
 
-        # Limpiar mensajes anteriores
         await page.evaluate('''
             const container = document.querySelector('.chat-container');
             container.innerHTML = container.children[0].outerHTML + container.children[1].outerHTML;
         ''')
 
-        # Establecer el título del chat
         await page.evaluate('''
             const container = document.querySelector('.chat-container');
             const title = document.getElementById('title');
-            title.innerHTML = "''' + chat_json["Chat"]["titulo"] + '''";''')
+            title.innerHTML = "''' + chat_json["Chat"]["titulo"] + '''";
+        ''')
 
-        # Insertar cada mensaje de manera segura
         for mensaje in chat_json["Chat"]["mensajes"]:
             personaje_id = mensaje["Personaje"]
             mensaje_texto = mensaje["Mensaje"]
-
-            # Obtener datos del personaje desde la base de datos
             personaje = obtener_personaje(personaje_id)
             if not personaje:
                 print(f"⚠️ Personaje con ID {personaje_id} no encontrado en la base de datos.")
                 continue
 
-            nombre, lado, avatar_url = personaje
+            nombre, lado, avatar_url, color, color_texto = personaje
             derecha = lado == "D"
 
-            # Colores corregidos y pasados directamente como cadenas
-            color = "#2C58E2" if derecha else "#FFFFFF"  # Azul para derecha, blanco para izquierda
-            color_text = "#FFFFFF" if derecha else "#000000"  # Blanco para texto en azul, negro para texto en blanco
             avatar_js = json.dumps(avatar_url)
             derecha_js = "true" if derecha else "false"
             personaje_id_js = json.dumps(f"id{personaje_id}")
-            mensaje_js = json.dumps(mensaje_texto)  # Convierte el mensaje a cadena JSON válida
+            mensaje_js = json.dumps(mensaje_texto)
 
             await page.evaluate(f'''
-                const chat5 = new Chat('.chat-container', "{color}", "{color_text}", {avatar_js}, {derecha_js}, {personaje_id_js});
+                const chat5 = new Chat('.chat-container', "{color}", "{color_texto}", {avatar_js}, {derecha_js}, {personaje_id_js});
                 chat5.addMessage({mensaje_js});
             ''')
 
-        # Añadir borde visual al contenedor
         await page.evaluate('''
             const container = document.querySelector('.chat-container');
             container.style.borderRadius = '20px';
@@ -77,7 +67,5 @@ async def generar_captura(chat_json):
         filename = f"exportaciones/chat_{timestamp}.png"
 
         await chat_container.screenshot(path=filename)
-
         await browser.close()
-
         return filename
