@@ -50,7 +50,7 @@ style.textContent = `
         width: 10px;
         height: 10px;
         background-color: white;
-        clip-path: path("M 10 0 Q 10 5 0 3 Q 2 12 10 5 Z");
+        clip-path: path("M 10 5 Q 2 12 0 3 Q 10 5 10 0 Z")
     }*/
 
     .img-container img {
@@ -62,42 +62,6 @@ style.textContent = `
 `;
 document.head.appendChild(style);
 
-// Modificar la clase Chat para aplicar la alineación
-/*class ChatOld {
-    constructor(containerSelector) {
-        this.container = document.querySelector(containerSelector);
-        this.isNextBlue = true; // Alternar entre azul y gris
-    }
-
-    addMessage(text) {
-        const messageElement = document.createElement('div');
-        messageElement.classList.add('chat-box');
-
-        if (this.isNextBlue) {
-            messageElement.classList.add('blue'); // Añadir clase para alinear a la derecha
-            messageElement.innerHTML = `
-                <div class="chat-bubble blue">
-                    ${text}
-                </div>
-                <div class="img-container">
-                    <img src="https://cdn.pixabay.com/photo/2015/10/05/22/37/blank-profile-picture-973460_1280.png" alt="Imagen de perfil">
-                </div>
-            `;
-        } else {
-            messageElement.innerHTML = `
-                <div class="img-container">
-                    <img src="https://cdn.pixabay.com/photo/2015/10/05/22/37/blank-profile-picture-973460_1280.png" alt="Imagen de perfil">
-                </div>
-                <div class="chat-bubble gray">
-                    ${text}
-                </div>
-            `;
-        }
-
-        this.container.appendChild(messageElement);
-        this.isNextBlue = !this.isNextBlue; // Alternar el color
-    }
-}*/
 class Chat {
     constructor(containerSelector = '.chat-container', color = 'blue', colorText = "white", imgSrc = 'https://cdn.pixabay.com/photo/2015/10/05/22/37/blank-profile-picture-973460_1280.png', derecha = true, user = 'default-user') {
         this.container = document.querySelector(containerSelector);

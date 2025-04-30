@@ -58,7 +58,8 @@ class EditPersonajeView(discord.ui.View):
         if self.message:
             await self.message.edit(embed=embed, view=self)
         else:
-            self.message = await self.interaction.followup.send(embed=embed, view=self)
+            # Enviar al MD del usuario
+            self.message = await self.interaction.user.send(embed=embed, view=self)
 
     @discord.ui.button(label="🔄 Cambiar lado", style=discord.ButtonStyle.secondary)
     async def cambiar_lado(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -73,20 +74,32 @@ class EditPersonajeView(discord.ui.View):
     @discord.ui.button(label="🖋️ Cambiar color texto", style=discord.ButtonStyle.primary)
     async def cambiar_color_texto(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.send_modal(ColorModal(self, "color_texto"))
-
+    
     @discord.ui.button(label="✅ Guardar", style=discord.ButtonStyle.success)
     async def guardar(self, interaction: discord.Interaction, button: discord.ui.Button):
-        actualizar_personaje(self.personaje_id, lado=self.lado, color=self.color, color_texto=self.color_texto)
-        if not interaction.response.is_done():
-            await interaction.response.edit_message(content=f"✅ Cambios guardados para {self.nombre}.", embed=None, view=None)
-        else:
-            await interaction.followup.send(content=f"✅ Cambios guardados para {self.nombre}.", ephemeral=True)
-        self.stop()
+        try:
+            # Actualizar los datos del personaje en la base de datos
+            actualizar_personaje(self.personaje_id, lado=self.lado, color=self.color, color_texto=self.color_texto)
+            await interaction.response.send_message(content=f"✅ Cambios guardados para {self.nombre}.", ephemeral=True)
+        except Exception as e:
+            await interaction.response.send_message(content=f"❌ Error al guardar los cambios: {e}", ephemeral=True)
+        finally:
+            # Editar el mensaje para eliminar la vista y el embed
+            if self.message:
+                await self.message.edit(content="✅ Cambios guardados.", embed=None, view=None)
+            self.stop()  # Detener la vista
 
     @discord.ui.button(label="❌ Cancelar", style=discord.ButtonStyle.danger)
     async def cancelar(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.edit_message(content="❌ Edición cancelada.", embed=None, view=None)
-        self.stop()
+        try:
+            await interaction.response.send_message(content="❌ Edición cancelada.", ephemeral=True)
+        except Exception as e:
+            await interaction.response.send_message(content=f"❌ Error al cancelar: {e}", ephemeral=True)
+        finally:
+            # Editar el mensaje para eliminar la vista y el embed
+            if self.message:
+                await self.message.edit(content="❌ Edición cancelada.", embed=None, view=None)
+            self.stop()  # Detener la vista
 
 class ColorModal(discord.ui.Modal):
     def __init__(self, view: EditPersonajeView, tipo: str):
