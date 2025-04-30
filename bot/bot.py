@@ -9,6 +9,7 @@ import logging
 from db import inicializar_base, obtener_personaje, guardar_personaje
 from views import LadoView, EditPersonajeView
 from captura import generar_captura
+from db import obtener_tupperbox_webhook, guardar_tupperbox_webhook
 
 # Configurar logging
 logging.basicConfig(level=logging.INFO, format='[%(asctime)s] [%(levelname)s]: %(message)s')
@@ -16,6 +17,7 @@ logging.basicConfig(level=logging.INFO, format='[%(asctime)s] [%(levelname)s]: %
 TUPPERBOX_WEBHOOK_ID = 1365408923808563361
 EXPORT_FOLDER = "exportaciones"
 ROL_REQUERIDO = "Bot Admin"
+MAX_MENSAJES_POR_IMAGEN = 10  # Ajustable desde código
 active_monitors = {}
 
 inicializar_base()
@@ -49,6 +51,18 @@ def requiere_admin():
         return False
     return app_commands.check(predicate)
 
+def limpiar_formato_discord(texto: str) -> str:
+    import re
+    texto = re.sub(r'```.*?```', '', texto, flags=re.DOTALL)
+    texto = re.sub(r'`([^`]*)`', r'\1', texto)
+    texto = re.sub(r'\*\*\*([^*]+)\*\*\*', r'\1', texto)
+    texto = re.sub(r'\*\*([^*]+)\*\*', r'\1', texto)
+    texto = re.sub(r'\*([^*]+)\*', r'\1', texto)
+    texto = re.sub(r'__([^_]+)__', r'\1', texto)
+    texto = re.sub(r'~~([^~]+)~~', r'\1', texto)
+    texto = re.sub(r'\|\|([^|]+)\|\|', r'\1', texto)
+    return texto.strip()
+
 # ---------------------------- UTILIDADES ----------------------------
 
 def buscar_personaje_por_nombre(nombre):
@@ -63,6 +77,20 @@ def buscar_personaje_por_nombre(nombre):
     conn.close()
     return None
 
+async def detectar_tupperbox_webhook(guild: discord.Guild):
+    async for channel in guild.text_channels:
+        try:
+            async for msg in channel.history(limit=50):
+                if msg.webhook_id and "tupper" in msg.author.name.lower():
+                    guardar_tupperbox_webhook(guild.id, msg.webhook_id)
+                    logging.info(f"[💾] Tupperbox Webhook detectado en {guild.name}: {msg.webhook_id}")
+                    return msg.webhook_id
+        except Exception as e:
+            continue
+    logging.warning(f"[⚠️] No se pudo detectar el Webhook de Tupperbox en {guild.name}")
+    return None
+
+
 async def actualizar_chat_logica(channel, chat_json, solicitante=None):
     mensajes_guardados = chat_json["Chat"]["mensajes"]
     mensajes_guardados_contenido = set(m["Mensaje"] for m in mensajes_guardados)
@@ -70,7 +98,11 @@ async def actualizar_chat_logica(channel, chat_json, solicitante=None):
     last_id = chat_json["Chat"].get("ultimo_id")
 
     async for msg in channel.history(after=discord.Object(id=last_id)) if last_id else channel.history(limit=100):
-        if msg.webhook_id and msg.webhook_id != TUPPERBOX_WEBHOOK_ID and msg.content not in mensajes_guardados_contenido:
+        tupper_id = obtener_tupperbox_webhook(channel.guild.id)
+        if not tupper_id:
+            tupper_id = await detectar_tupperbox_webhook(channel.guild)
+
+        if msg.webhook_id == tupper_id and msg.content not in mensajes_guardados_contenido:
             personaje_nombre = msg.author.display_name
             personaje_id = str(msg.author.name).replace(" ", "_") + str(msg.author.id)
             avatar_url = str(msg.author.avatar.url) if msg.author.avatar else "https://cdn.pixabay.com/photo/2015/10/05/22/37/blank-profile-picture-973460_1280.png"
@@ -93,7 +125,7 @@ async def actualizar_chat_logica(channel, chat_json, solicitante=None):
 
             nuevos_mensajes.append({
                 "Personaje": personaje_id,
-                "Mensaje": msg.content
+                "Mensaje": limpiar_formato_discord(msg.content)
             })
             chat_json["Chat"]["ultimo_id"] = msg.id
 
@@ -102,6 +134,45 @@ async def actualizar_chat_logica(channel, chat_json, solicitante=None):
         chat_json["Chat"]["fecha"] = datetime.datetime.utcnow().strftime("%Y-%m-%d_%H-%M-%S")
         return True
     return False
+
+async def generar_imagen_segmentada(chat_json, canal_id):
+    partes = [
+        chat_json["Chat"]["mensajes"][i:i + MAX_MENSAJES_POR_IMAGEN]
+        for i in range(0, len(chat_json["Chat"]["mensajes"]), MAX_MENSAJES_POR_IMAGEN)
+    ]
+
+    if not partes:
+        raise ValueError("No hay mensajes para generar imagen")
+
+    # Guardar primera parte si hay más de una
+    if len(partes) > 1:
+        primera_parte = {
+            "Chat": {
+                "titulo": chat_json["Chat"]["titulo"] + " (parte 1)",
+                "fecha": chat_json["Chat"]["fecha"],
+                "mensajes": partes[0]
+            }
+        }
+        imagen_path_1 = await generar_captura(primera_parte)
+        static_path = f"{EXPORT_FOLDER}/chat_{canal_id}_parte1.png"
+        os.replace(imagen_path_1, static_path)
+        logging.info(f"[📸] Imagen estática guardada en {static_path}")
+
+    # Generar la parte final actualizable
+    ultima_parte = {
+        "Chat": {
+            "titulo": chat_json["Chat"]["titulo"] + f" (actualizado parte {len(partes)})",
+            "fecha": chat_json["Chat"]["fecha"],
+            "mensajes": partes[-1]
+        }
+    }
+
+    imagen_path = await generar_captura(ultima_parte)
+    final_path = f"{EXPORT_FOLDER}/chat_{canal_id}.png"
+    os.replace(imagen_path, final_path)
+    return final_path
+
+
 
 async def monitor_chat(channel, message_id, duration_minutes, solicitante):
     logging.info(f"Monitor iniciado en #{channel.name} por {duration_minutes} minutos")
@@ -117,14 +188,26 @@ async def monitor_chat(channel, message_id, duration_minutes, solicitante):
             with open(json_filename, "w", encoding="utf-8") as f:
                 json.dump(chat_json, f, indent=4, ensure_ascii=False)
 
-            imagen_path = await generar_captura(chat_json)
+            partes = [
+                chat_json["Chat"]["mensajes"][i:i + MAX_MENSAJES_POR_IMAGEN]
+                for i in range(0, len(chat_json["Chat"]["mensajes"]), MAX_MENSAJES_POR_IMAGEN)
+            ]
+
+            ultima_parte = {
+                "Chat": {
+                    "titulo": chat_json["Chat"]["titulo"] + f" (actualizado parte {len(partes)})",
+                    "fecha": chat_json["Chat"]["fecha"],
+                    "mensajes": partes[-1]
+                }
+            }
+
+            imagen_path = await generar_captura(ultima_parte)
             final_path = f"{EXPORT_FOLDER}/chat_{channel.id}.png"
             os.replace(imagen_path, final_path)
 
             try:
                 mensaje = await channel.fetch_message(message_id)
                 await mensaje.edit(content="✅ (Actualizado)", attachments=[discord.File(final_path)])
-                logging.info(f"Imagen actualizada en {channel.name}")
             except discord.NotFound:
                 logging.warning("Mensaje original no encontrado para editar")
 
@@ -144,8 +227,12 @@ async def generarchat(interaction: discord.Interaction, cantidad: int = 20, titl
     mensajes_json = []
     tupper_msgs = []
 
+    tupper_id = obtener_tupperbox_webhook(channel.guild.id)
+    if not tupper_id:
+        tupper_id = await detectar_tupperbox_webhook(channel.guild)
+
     async for msg in channel.history(limit=100):
-        if msg.webhook_id and msg.webhook_id != TUPPERBOX_WEBHOOK_ID:
+        if msg.webhook_id and msg.webhook_id == tupper_id:
             tupper_msgs.append(msg)
         if len(tupper_msgs) >= cantidad:
             break
@@ -188,9 +275,7 @@ async def generarchat(interaction: discord.Interaction, cantidad: int = 20, titl
     with open(json_filename, "w", encoding="utf-8") as f:
         json.dump(chat_json, f, indent=4, ensure_ascii=False)
 
-    imagen_path = await generar_captura(chat_json)
-    final_path = f"{EXPORT_FOLDER}/chat_{channel.id}.png"
-    os.replace(imagen_path, final_path)
+    final_path = await generar_imagen_segmentada(chat_json, channel.id)
     msg = await interaction.followup.send(file=discord.File(final_path), content="✅ ¡Aquí tienes tu chat generado!")
 
     chat_json["Chat"]["mensaje_id"] = msg.id
@@ -226,9 +311,7 @@ async def forzaractualizacion(interaction: discord.Interaction):
         with open(json_filename, "w", encoding="utf-8") as f:
             json.dump(chat_json, f, indent=4, ensure_ascii=False)
 
-        imagen_path = await generar_captura(chat_json)
-        final_path = f"{EXPORT_FOLDER}/chat_{interaction.channel.id}.png"
-        os.replace(imagen_path, final_path)
+        final_path = await generar_imagen_segmentada(chat_json, interaction.channel.id)
 
         try:
             msg = await interaction.channel.fetch_message(mensaje_id)

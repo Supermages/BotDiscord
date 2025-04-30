@@ -43,3 +43,27 @@ def actualizar_personaje(personaje_id, lado=None, color=None, color_texto=None):
         if color_texto:
             cur.execute('UPDATE Personaje_Tabla SET color_texto = ? WHERE personaje_id = ?', (color_texto, personaje_id))
         conn.commit()
+
+def guardar_tupperbox_webhook(guild_id, webhook_id):
+    with sqlite3.connect("eridubot.sqlite") as conn:
+        cur = conn.cursor()
+        cur.execute('''
+            CREATE TABLE IF NOT EXISTS Tupperbox_Webhooks (
+                guild_id TEXT PRIMARY KEY,
+                webhook_id TEXT NOT NULL
+            )
+        ''')
+        cur.execute('''
+            INSERT OR REPLACE INTO Tupperbox_Webhooks (guild_id, webhook_id)
+            VALUES (?, ?)
+        ''', (str(guild_id), str(webhook_id)))
+        conn.commit()
+
+def obtener_tupperbox_webhook(guild_id):
+    with sqlite3.connect("eridubot.sqlite") as conn:
+        cur = conn.cursor()
+        cur.execute('''
+            SELECT webhook_id FROM Tupperbox_Webhooks WHERE guild_id = ?
+        ''', (str(guild_id),))
+        row = cur.fetchone()
+        return int(row[0]) if row else None
