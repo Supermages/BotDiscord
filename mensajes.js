@@ -50,7 +50,7 @@ style.textContent = `
         width: 10px;
         height: 10px;
         background-color: white;
-        clip-path: path("M 10 5 Q 2 12 0 3 Q 10 5 10 0 Z")
+        clip-path: path("M 10 5 Q 2 12 0 3 Q 10 5 10 0 Z");
     }*/
 
     .img-container img {
@@ -86,7 +86,7 @@ class Chat {
                 width: 10px;
                 height: 10px;
                 background-color: ${this.color};
-                clip-path: path("M 0 0 Q 0 5 10 3 Q 8 12 0 5 Z");
+                ${this.derecha ? 'clip-path: path("M 0 0 Q 0 5 10 3 Q 8 12 0 5 Z")' : 'clip-path: path("M 10 5 Q 2 12 0 3 Q 10 5 10 0 Z")'};
             }
         `;
         document.head.appendChild(dynamicStyle);
