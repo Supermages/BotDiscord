@@ -6,6 +6,7 @@ import datetime
 import json
 import asyncio
 import logging
+from datetime import timezone
 from db import inicializar_base, obtener_personaje, guardar_personaje
 from views import LadoView, EditPersonajeView
 from captura import generar_captura
@@ -77,18 +78,26 @@ def buscar_personaje_por_nombre(nombre):
     conn.close()
     return None
 
-async def detectar_tupperbox_webhook(guild: discord.Guild):
-    async for channel in guild.text_channels:
-        try:
-            async for msg in channel.history(limit=50):
-                if msg.webhook_id and "tupper" in msg.author.name.lower():
-                    guardar_tupperbox_webhook(guild.id, msg.webhook_id)
-                    logging.info(f"[💾] Tupperbox Webhook detectado en {guild.name}: {msg.webhook_id}")
-                    return msg.webhook_id
-        except Exception as e:
+async def detectar_tupperbox_id(channel: discord.TextChannel) -> int | None:
+    ids_nombres = {}
+
+    async for msg in channel.history(limit=200):
+        if not msg.webhook_id:
             continue
-    logging.warning(f"[⚠️] No se pudo detectar el Webhook de Tupperbox en {guild.name}")
+        key = msg.author.id
+        nombre = msg.author.name
+        if key not in ids_nombres:
+            ids_nombres[key] = set()
+        ids_nombres[key].add(nombre)
+
+    for bot_id, nombres in ids_nombres.items():
+        if len(nombres) > 1:
+            logging.info(f"[🎭] Detectado posible Tupperbox ID: {bot_id} en canal {channel.name}")
+            return bot_id
+
+    logging.warning(f"[⚠️] No se detectó ningún ID de Tupperbox en {channel.name}")
     return None
+
 
 
 async def actualizar_chat_logica(channel, chat_json, solicitante=None):
@@ -97,14 +106,16 @@ async def actualizar_chat_logica(channel, chat_json, solicitante=None):
     nuevos_mensajes = []
     last_id = chat_json["Chat"].get("ultimo_id")
 
-    async for msg in channel.history(after=discord.Object(id=last_id)) if last_id else channel.history(limit=100):
-        tupper_id = obtener_tupperbox_webhook(channel.guild.id)
-        if not tupper_id:
-            tupper_id = await detectar_tupperbox_webhook(channel.guild)
+    # Detectar ID de Tupperbox dinámicamente
+    tupperbox_id = await detectar_tupperbox_id(channel)
+    if not tupperbox_id:
+        logging.warning("No se pudo detectar el ID de Tupperbox.")
+        return False
 
-        if msg.webhook_id == tupper_id and msg.content not in mensajes_guardados_contenido:
+    async for msg in channel.history(after=discord.Object(id=last_id)) if last_id else channel.history(limit=100):
+        if msg.webhook_id and msg.author.id == tupperbox_id and msg.content not in mensajes_guardados_contenido:
             personaje_nombre = msg.author.display_name
-            personaje_id = str(msg.author.name).replace(" ", "_") + str(msg.author.id)
+            personaje_id = (str(msg.author.name).replace(" ", "_").replace(":", "_") + str(msg.author.id))[:64]
             avatar_url = str(msg.author.avatar.url) if msg.author.avatar else "https://cdn.pixabay.com/photo/2015/10/05/22/37/blank-profile-picture-973460_1280.png"
             personaje = obtener_personaje(personaje_id)
 
@@ -131,7 +142,7 @@ async def actualizar_chat_logica(channel, chat_json, solicitante=None):
 
     if nuevos_mensajes:
         chat_json["Chat"]["mensajes"].extend(reversed(nuevos_mensajes))
-        chat_json["Chat"]["fecha"] = datetime.datetime.utcnow().strftime("%Y-%m-%d_%H-%M-%S")
+        chat_json["Chat"]["fecha"] = datetime.datetime.now(timezone.utc).strftime("%Y-%m-%d_%H-%M-%S")
         return True
     return False
 
@@ -177,12 +188,12 @@ async def generar_imagen_segmentada(chat_json, canal_id):
 async def monitor_chat(channel, message_id, duration_minutes, solicitante):
     logging.info(f"Monitor iniciado en #{channel.name} por {duration_minutes} minutos")
     json_filename = f"{EXPORT_FOLDER}/chat_{channel.id}.json"
-    end_time = datetime.datetime.utcnow() + datetime.timedelta(minutes=duration_minutes)
+    end_time = datetime.datetime.now(timezone.utc) + datetime.timedelta(minutes=duration_minutes)
 
     with open(json_filename, "r", encoding="utf-8") as f:
         chat_json = json.load(f)
 
-    while datetime.datetime.utcnow() < end_time:
+    while datetime.datetime.now(timezone.utc) < end_time:
         cambios = await actualizar_chat_logica(channel, chat_json, solicitante)
         if cambios:
             with open(json_filename, "w", encoding="utf-8") as f:
@@ -226,13 +237,12 @@ async def generarchat(interaction: discord.Interaction, cantidad: int = 20, titl
     channel = interaction.channel
     mensajes_json = []
     tupper_msgs = []
-
-    tupper_id = obtener_tupperbox_webhook(channel.guild.id)
-    if not tupper_id:
-        tupper_id = await detectar_tupperbox_webhook(channel.guild)
+    tupperbox_id = await detectar_tupperbox_id(channel)
+    if not tupperbox_id:
+        return await interaction.followup.send("❌ No se pudo detectar un bot de Tupperbox en este canal.")
 
     async for msg in channel.history(limit=100):
-        if msg.webhook_id and msg.webhook_id == tupper_id:
+        if msg.webhook_id and msg.author.id == tupperbox_id:
             tupper_msgs.append(msg)
         if len(tupper_msgs) >= cantidad:
             break
@@ -260,7 +270,7 @@ async def generarchat(interaction: discord.Interaction, cantidad: int = 20, titl
             "Mensaje": msg.content
         })
 
-    timestamp = datetime.datetime.utcnow().strftime("%Y-%m-%d_%H-%M-%S")
+    timestamp = datetime.datetime.now(timezone.utc).strftime("%Y-%m-%d_%H-%M-%S")
     last_id = tupper_msgs[0].id if tupper_msgs else None
     chat_json = {
         "Chat": {
@@ -275,15 +285,29 @@ async def generarchat(interaction: discord.Interaction, cantidad: int = 20, titl
     with open(json_filename, "w", encoding="utf-8") as f:
         json.dump(chat_json, f, indent=4, ensure_ascii=False)
 
+    # Generar imagen segmentada
     final_path = await generar_imagen_segmentada(chat_json, channel.id)
-    msg = await interaction.followup.send(file=discord.File(final_path), content="✅ ¡Aquí tienes tu chat generado!")
+
+    # Enviar parte estática si existe
+    parte_estatica = f"{EXPORT_FOLDER}/chat_{channel.id}_parte1.png"
+    archivos_a_enviar = []
+
+    if os.path.exists(parte_estatica):
+        archivos_a_enviar.append(discord.File(parte_estatica))
+
+    archivos_a_enviar.append(discord.File(final_path))
+
+    msg = await interaction.followup.send(
+        content="✅ ¡Aquí tienes tu chat generado!",
+        files=archivos_a_enviar
+    )
 
     chat_json["Chat"]["mensaje_id"] = msg.id
     with open(json_filename, "w", encoding="utf-8") as f:
         json.dump(chat_json, f, indent=4, ensure_ascii=False)
 
     task = asyncio.create_task(monitor_chat(channel, msg.id, duracion, interaction.user))
-    active_monitors[channel.id] = {"tarea": task, "hasta": datetime.datetime.utcnow() + datetime.timedelta(minutes=duracion)}
+    active_monitors[channel.id] = {"tarea": task, "hasta": datetime.datetime.now(timezone.utc) + datetime.timedelta(minutes=duracion)}
 
 @tree.command(name="forzaractualizacion", description="Fuerza la actualización del chat (detecta nuevos mensajes)")
 @requiere_admin()
@@ -340,7 +364,7 @@ async def listarmonitores(interaction: discord.Interaction):
 
     desc = ""
     for canal_id, info in active_monitors.items():
-        restante = (info["hasta"] - datetime.datetime.utcnow()).total_seconds() // 60
+        restante = (info["hasta"] - datetime.datetime.now(timezone.utc)).total_seconds() // 60
         desc += f"• Canal <#{canal_id}> — {int(restante)} min restantes\n"
 
     embed = discord.Embed(
