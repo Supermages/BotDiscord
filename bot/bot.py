@@ -10,6 +10,7 @@ from datetime import timezone
 from db import inicializar_base, obtener_personaje, guardar_personaje
 from views import LadoView, EditPersonajeView
 from captura import generar_captura
+import re
 from db import obtener_tupperbox_webhook, guardar_tupperbox_webhook
 
 # Configurar logging
@@ -115,28 +116,42 @@ async def actualizar_chat_logica(channel, chat_json, solicitante=None):
     async for msg in channel.history(after=discord.Object(id=last_id)) if last_id else channel.history(limit=100):
         if msg.webhook_id and msg.author.id == tupperbox_id and msg.content not in mensajes_guardados_contenido:
             personaje_nombre = msg.author.display_name
-            personaje_id = (str(msg.author.name).replace(" ", "_").replace(":", "_") + str(msg.author.id))[:64]
+             # Limpiar nombre: solo letras, números y guion bajo
+            tupper_tag = re.sub(r'[^a-zA-Z0-9_]', '_', str(msg.author.name))
             avatar_url = str(msg.author.avatar.url) if msg.author.avatar else "https://cdn.pixabay.com/photo/2015/10/05/22/37/blank-profile-picture-973460_1280.png"
-            personaje = obtener_personaje(personaje_id)
+            personaje = obtener_personaje(tupper_tag)
 
             if not personaje and solicitante:
                 try:
-                    view = LadoView(solicitante.id, personaje_id, personaje_nombre, avatar_url)
+                    view = LadoView(solicitante.id, tupper_tag, personaje_nombre, avatar_url)
                     await solicitante.send(f"📢 ¿Dónde quieres colocar a **{personaje_nombre}**?", view=view)
                     await view.wait()
                     lado = view.lado or "I"
                     color = "#2C58E2" if lado == "D" else "#FFFFFF"
                     color_texto = "#FFFFFF" if lado == "D" else "#000000"
-                    guardar_personaje(personaje_id, personaje_nombre, lado, avatar_url, color, color_texto)
+                    guardar_personaje(tupper_tag, personaje_nombre, lado, avatar_url, color, color_texto)
                 except discord.Forbidden:
                     logging.warning(f"No se pudo enviar DM a {solicitante.display_name}")
                     continue
             elif not personaje:
                 continue
+            
+            adjuntos = []
 
+            # Archivos adjuntos tradicionales
+            if msg.attachments:
+                adjuntos.extend([a.url for a in msg.attachments])
+
+            # Embeds con imágenes
+            if msg.embeds:
+                for embed in msg.embeds:
+                    if embed.image and embed.image.url:
+                        adjuntos.append(embed.image.url)
+            
             nuevos_mensajes.append({
-                "Personaje": personaje_id,
-                "Mensaje": limpiar_formato_discord(msg.content)
+                "Personaje": tupper_tag,
+                "Mensaje": limpiar_formato_discord(msg.content),
+                "Adjuntos": adjuntos
             })
             chat_json["Chat"]["ultimo_id"] = msg.id
 
@@ -247,27 +262,42 @@ async def generarchat(interaction: discord.Interaction, cantidad: int = 20, titl
         if len(tupper_msgs) >= cantidad:
             break
 
+    # filepath: c:\Users\nicol\Downloads\Bot Discord\BotDiscord\bot\bot.py
     for msg in reversed(tupper_msgs[:cantidad]):
         personaje_nombre = msg.author.display_name
-        personaje_id = str(msg.author.name).replace(" ", "_") + str(msg.author.id)
+        tupper_tag = re.sub(r'[^a-zA-Z0-9_]', '_', str(msg.author.name))
         avatar_url = str(msg.author.avatar.url) if msg.author.avatar else "https://cdn.pixabay.com/photo/2015/10/05/22/37/blank-profile-picture-973460_1280.png"
-        personaje = obtener_personaje(personaje_id)
+        personaje = obtener_personaje(tupper_tag)
 
         if not personaje:
             try:
-                view = LadoView(interaction.user.id, personaje_id, personaje_nombre, avatar_url)
+                view = LadoView(interaction.user.id, tupper_tag, personaje_nombre, avatar_url)
                 await interaction.user.send(f"📢 ¿Dónde quieres colocar a **{personaje_nombre}**?", view=view)
                 await view.wait()
                 lado = view.lado or "I"
                 color = "#2C58E2" if lado == "D" else "#FFFFFF"
                 color_texto = "#FFFFFF" if lado == "D" else "#000000"
-                guardar_personaje(personaje_id, personaje_nombre, lado, avatar_url, color, color_texto)
+                guardar_personaje(tupper_tag, personaje_nombre, lado, avatar_url, color, color_texto)
             except discord.Forbidden:
                 continue
+        
+        adjuntos = []
+
+        # Archivos adjuntos tradicionales
+        if msg.attachments:
+            adjuntos.extend([a.url for a in msg.attachments])
+
+        # Embeds con imágenes
+        if msg.embeds:
+            for embed in msg.embeds:
+                if embed.image and embed.image.url:
+                    adjuntos.append(embed.image.url)
+
 
         mensajes_json.append({
-            "Personaje": personaje_id,
-            "Mensaje": msg.content
+            "Personaje": tupper_tag,
+            "Mensaje": limpiar_formato_discord(msg.content),
+            "Adjuntos": adjuntos
         })
 
     timestamp = datetime.datetime.now(timezone.utc).strftime("%Y-%m-%d_%H-%M-%S")
@@ -413,8 +443,8 @@ async def editarpersonaje(interaction: discord.Interaction, nombre: str):
         )
         return await interaction.followup.send(embed=embed, ephemeral=True)
 
-    personaje_id, nombre, lado, avatar_url, color, color_texto = personaje
-    view = EditPersonajeView(interaction, personaje_id, nombre, lado, color, color_texto, avatar_url)
+    tupper_tag, nombre, lado, avatar_url, color, color_texto = personaje
+    view = EditPersonajeView(interaction, tupper_tag, nombre, lado, color, color_texto, avatar_url)
 
     try:
         await view.send_preview()

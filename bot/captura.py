@@ -34,6 +34,7 @@ async def generar_captura(chat_json):
         for mensaje in chat_json["Chat"]["mensajes"]:
             personaje_id = mensaje["Personaje"]
             mensaje_texto = mensaje["Mensaje"]
+            adjuntos = mensaje["Adjuntos"]
             personaje = obtener_personaje(personaje_id)
             if not personaje:
                 print(f"⚠️ Personaje con ID {personaje_id} no encontrado en la base de datos.")
@@ -46,10 +47,11 @@ async def generar_captura(chat_json):
             derecha_js = "true" if derecha else "false"
             personaje_id_js = json.dumps(f"id{personaje_id}")
             mensaje_js = json.dumps(mensaje_texto)
+            adjuntos_js = json.dumps(adjuntos) 
 
             await page.evaluate(f'''
                 const chat5 = new Chat('.chat-container', "{color}", "{color_texto}", {avatar_js}, {derecha_js}, {personaje_id_js});
-                chat5.addMessage({mensaje_js});
+                chat5.addMessage({mensaje_js}, {adjuntos_js});
             ''')
 
         await page.evaluate('''

@@ -92,15 +92,28 @@ class Chat {
         document.head.appendChild(dynamicStyle);
     }
 
-    addMessage(text) {
+    addMessage(text, attachments = []) {
         const messageElement = document.createElement('div');
         messageElement.classList.add('chat-box');
 
+        // Construir HTML del mensaje con adjuntos
+        let bubbleContent = text;
+
+        if (attachments && attachments.length > 0) {
+            attachments.forEach(url => {
+                if (url.match(/\.(jpeg|jpg|gif|png|webp)$/i)) {
+                    bubbleContent += `<img class="chat-attachment-img" src="${url}" alt="adjunto">`;
+                } else {
+                    bubbleContent += `<a class="chat-attachment-link" href="${url}" target="_blank">Archivo adjunto</a>`;
+                }
+            });
+        }
+
         if (this.derecha) {
-            messageElement.classList.add('blue'); // Añadir clase para alinear a la derecha
+            messageElement.classList.add('blue');
             messageElement.innerHTML = `
                 <div class="chat-bubble ${this.user}">
-                    ${text}
+                    ${bubbleContent}
                 </div>
                 <div class="img-container">
                     <img src="${this.imgSrc}" alt="Imagen de perfil">
@@ -112,7 +125,7 @@ class Chat {
                     <img src="${this.imgSrc}" alt="Imagen de perfil">
                 </div>
                 <div class="chat-bubble ${this.user}">
-                    ${text}
+                    ${bubbleContent}
                 </div>
             `;
         }

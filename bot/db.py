@@ -8,7 +8,7 @@ def inicializar_base():
         cur = conn.cursor()
         cur.execute('''
             CREATE TABLE IF NOT EXISTS Personaje_Tabla (
-                personaje_id TEXT PRIMARY KEY,
+                tupper_tag TEXT PRIMARY KEY,
                 nombre TEXT NOT NULL,
                 lado TEXT NOT NULL,
                 avatar_url TEXT,
@@ -18,30 +18,30 @@ def inicializar_base():
         ''')
         conn.commit()
 
-def obtener_personaje(personaje_id):
+def obtener_personaje(tupper_tag):
     with sqlite3.connect(DB_FILE) as conn:
         cur = conn.cursor()
-        cur.execute('SELECT nombre, lado, avatar_url, color, color_texto FROM Personaje_Tabla WHERE personaje_id = ?', (personaje_id,))
+        cur.execute('SELECT nombre, lado, avatar_url, color, color_texto FROM Personaje_Tabla WHERE tupper_tag = ?', (tupper_tag,))
         return cur.fetchone()
 
-def guardar_personaje(personaje_id, nombre, lado, avatar_url, color="#FFFFFF", color_texto="#000000"):
+def guardar_personaje(tupper_tag, nombre, lado, avatar_url, color="#FFFFFF", color_texto="#000000"):
     with sqlite3.connect(DB_FILE) as conn:
         cur = conn.cursor()
         cur.execute('''
-            INSERT OR REPLACE INTO Personaje_Tabla (personaje_id, nombre, lado, avatar_url, color, color_texto)
+            INSERT OR REPLACE INTO Personaje_Tabla (tupper_tag, nombre, lado, avatar_url, color, color_texto)
             VALUES (?, ?, ?, ?, ?, ?)
-        ''', (personaje_id, nombre, lado, avatar_url, color, color_texto))
+        ''', (tupper_tag, nombre, lado, avatar_url, color, color_texto))
         conn.commit()
 
-def actualizar_personaje(personaje_id, lado=None, color=None, color_texto=None):
+def actualizar_personaje(tupper_tag, lado=None, color=None, color_texto=None):
     with sqlite3.connect(DB_FILE) as conn:
         cur = conn.cursor()
         if lado:
-            cur.execute('UPDATE Personaje_Tabla SET lado = ? WHERE personaje_id = ?', (lado, personaje_id))
+            cur.execute('UPDATE Personaje_Tabla SET lado = ? WHERE tupper_tag = ?', (lado, tupper_tag))
         if color:
-            cur.execute('UPDATE Personaje_Tabla SET color = ? WHERE personaje_id = ?', (color, personaje_id))
+            cur.execute('UPDATE Personaje_Tabla SET color = ? WHERE tupper_tag = ?', (color, tupper_tag))
         if color_texto:
-            cur.execute('UPDATE Personaje_Tabla SET color_texto = ? WHERE personaje_id = ?', (color_texto, personaje_id))
+            cur.execute('UPDATE Personaje_Tabla SET color_texto = ? WHERE tupper_tag = ?', (color_texto, tupper_tag))
         conn.commit()
 
 def guardar_tupperbox_webhook(guild_id, webhook_id):
