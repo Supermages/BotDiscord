@@ -1,28 +1,42 @@
 import discord
 from discord import app_commands
 from discord.ext import commands
-import os
+import os 
 import datetime
 import json
 import asyncio
 import logging
 from datetime import timezone
-from db import inicializar_base, obtener_personaje, guardar_personaje
-from views import LadoView, EditPersonajeView
-from captura import generar_captura
+from dotenv import load_dotenv
 import re
-from db import obtener_tupperbox_webhook, guardar_tupperbox_webhook
+# --- NUEVOS IMPORTS ---
+from core.database import (
+    inicializar_base, obtener_personaje, guardar_personaje, 
+    obtener_tupperbox_webhook, guardar_tupperbox_webhook,
+    buscar_personaje_por_nombre_db # Recuerda usar la nueva función DB
+)
+from ui.views import LadoView, EditPersonajeView
+from renderer.captura import generar_captura
+
+load_dotenv()
+
+load_dotenv()
 
 # Configurar logging
 logging.basicConfig(level=logging.INFO, format='[%(asctime)s] [%(levelname)s]: %(message)s')
 
-TUPPERBOX_WEBHOOK_ID = 1365408923808563361
-EXPORT_FOLDER = "exportaciones"
-ROL_REQUERIDO = "Bot Admin"
+TOKEN = os.getenv('DISCORD_TOKEN')
+TUPPERBOX_WEBHOOK_ID = os.getenv('TUPPER_WEBHOOK_ID')
+ROL_REQUERIDO = os.getenv('ROL_ADMIN')
+
+# --- RUTA DE EXPORTACIONES ---
+# Definir ruta absoluta para guardar las imágenes en 'data/exportaciones'
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+EXPORT_FOLDER = os.path.join(BASE_DIR, 'data', 'exportaciones')
 MAX_MENSAJES_POR_IMAGEN = 10  # Ajustable desde código
 active_monitors = {}
+file_lock = asyncio.Lock()
 
-inicializar_base()
 if not os.path.exists(EXPORT_FOLDER):
     os.makedirs(EXPORT_FOLDER)
 
@@ -79,21 +93,46 @@ def buscar_personaje_por_nombre(nombre):
     conn.close()
     return None
 
+# Reemplaza la función detectar_tupperbox_id actual por esta:
+
+# Reemplaza la función detectar_tupperbox_id completa en bot.py por esta:
+
 async def detectar_tupperbox_id(channel: discord.TextChannel) -> int | None:
+    # 1. INTENTO RÁPIDO: Buscar en base de datos
+    try:
+        # Nota: obtener_tupperbox_webhook devuelve una tupla (webhook_id,) o None
+        datos = await obtener_tupperbox_webhook(str(channel.guild.id))
+        if datos:
+            return int(datos[0]) # Convertimos a int para comparar con discord
+    except Exception as e:
+        logging.error(f"Error leyendo caché de webhooks: {e}")
+
+    # 2. INTENTO LENTO: Escanear historial (solo si no estaba en DB)
+    logging.info(f"Escaneando historial en #{channel.name} para buscar Tupperbox...")
     ids_nombres = {}
 
+    # Escaneamos historial
     async for msg in channel.history(limit=200):
         if not msg.webhook_id:
             continue
+        
+        # Guardamos qué nombres usa cada ID de webhook
         key = msg.author.id
         nombre = msg.author.name
+        
         if key not in ids_nombres:
             ids_nombres[key] = set()
         ids_nombres[key].add(nombre)
 
+    # Analizamos resultados
     for bot_id, nombres in ids_nombres.items():
+        # La lógica clave: Si un webhook tiene más de 1 nombre diferente, es Tupperbox
         if len(nombres) > 1:
-            logging.info(f"[🎭] Detectado posible Tupperbox ID: {bot_id} en canal {channel.name}")
+            logging.info(f"[🎭] Detectado Tupperbox ID: {bot_id}. Guardando en base de datos...")
+            
+            # 3. GUARDAR EN CACHÉ para el futuro
+            await guardar_tupperbox_webhook(str(channel.guild.id), str(bot_id))
+            
             return bot_id
 
     logging.warning(f"[⚠️] No se detectó ningún ID de Tupperbox en {channel.name}")
@@ -119,7 +158,7 @@ async def actualizar_chat_logica(channel, chat_json, solicitante=None):
              # Limpiar nombre: solo letras, números y guion bajo
             tupper_tag = re.sub(r'[^a-zA-Z0-9_]', '_', str(msg.author.name))
             avatar_url = str(msg.author.avatar.url) if msg.author.avatar else "https://cdn.pixabay.com/photo/2015/10/05/22/37/blank-profile-picture-973460_1280.png"
-            personaje = obtener_personaje(tupper_tag)
+            personaje = await obtener_personaje(tupper_tag)
 
             if not personaje and solicitante:
                 try:
@@ -129,7 +168,7 @@ async def actualizar_chat_logica(channel, chat_json, solicitante=None):
                     lado = view.lado or "I"
                     color = "#2C58E2" if lado == "D" else "#FFFFFF"
                     color_texto = "#FFFFFF" if lado == "D" else "#000000"
-                    guardar_personaje(tupper_tag, personaje_nombre, lado, avatar_url, color, color_texto)
+                    await guardar_personaje(tupper_tag, personaje_nombre, lado, avatar_url, color, color_texto)
                 except discord.Forbidden:
                     logging.warning(f"No se pudo enviar DM a {solicitante.display_name}")
                     continue
@@ -204,15 +243,16 @@ async def monitor_chat(channel, message_id, duration_minutes, solicitante):
     logging.info(f"Monitor iniciado en #{channel.name} por {duration_minutes} minutos")
     json_filename = f"{EXPORT_FOLDER}/chat_{channel.id}.json"
     end_time = datetime.datetime.now(timezone.utc) + datetime.timedelta(minutes=duration_minutes)
-
-    with open(json_filename, "r", encoding="utf-8") as f:
-        chat_json = json.load(f)
+    async with file_lock:
+        with open(json_filename, "r", encoding="utf-8") as f:
+            chat_json = json.load(f)
 
     while datetime.datetime.now(timezone.utc) < end_time:
         cambios = await actualizar_chat_logica(channel, chat_json, solicitante)
         if cambios:
-            with open(json_filename, "w", encoding="utf-8") as f:
-                json.dump(chat_json, f, indent=4, ensure_ascii=False)
+            async with file_lock:
+                with open(json_filename, "w", encoding="utf-8") as f:
+                    json.dump(chat_json, f, indent=4, ensure_ascii=False)
 
             partes = [
                 chat_json["Chat"]["mensajes"][i:i + MAX_MENSAJES_POR_IMAGEN]
@@ -234,6 +274,9 @@ async def monitor_chat(channel, message_id, duration_minutes, solicitante):
             try:
                 mensaje = await channel.fetch_message(message_id)
                 await mensaje.edit(content="✅ (Actualizado)", attachments=[discord.File(final_path)])
+
+                if os.path.exists(final_path):
+                    os.remove(final_path)
             except discord.NotFound:
                 logging.warning("Mensaje original no encontrado para editar")
 
@@ -267,7 +310,7 @@ async def generarchat(interaction: discord.Interaction, cantidad: int = 20, titl
         personaje_nombre = msg.author.display_name
         tupper_tag = re.sub(r'[^a-zA-Z0-9_]', '_', str(msg.author.name))
         avatar_url = str(msg.author.avatar.url) if msg.author.avatar else "https://cdn.pixabay.com/photo/2015/10/05/22/37/blank-profile-picture-973460_1280.png"
-        personaje = obtener_personaje(tupper_tag)
+        personaje = await obtener_personaje(tupper_tag)
 
         if not personaje:
             try:
@@ -277,7 +320,7 @@ async def generarchat(interaction: discord.Interaction, cantidad: int = 20, titl
                 lado = view.lado or "I"
                 color = "#2C58E2" if lado == "D" else "#FFFFFF"
                 color_texto = "#FFFFFF" if lado == "D" else "#000000"
-                guardar_personaje(tupper_tag, personaje_nombre, lado, avatar_url, color, color_texto)
+                await guardar_personaje(tupper_tag, personaje_nombre, lado, avatar_url, color, color_texto)
             except discord.Forbidden:
                 continue
         
@@ -312,8 +355,10 @@ async def generarchat(interaction: discord.Interaction, cantidad: int = 20, titl
     }
 
     json_filename = f"{EXPORT_FOLDER}/chat_{channel.id}.json"
-    with open(json_filename, "w", encoding="utf-8") as f:
-        json.dump(chat_json, f, indent=4, ensure_ascii=False)
+    
+    async with file_lock:
+        with open(json_filename, "w", encoding="utf-8") as f:
+            json.dump(chat_json, f, indent=4, ensure_ascii=False)
 
     # Generar imagen segmentada
     final_path = await generar_imagen_segmentada(chat_json, channel.id)
@@ -332,9 +377,19 @@ async def generarchat(interaction: discord.Interaction, cantidad: int = 20, titl
         files=archivos_a_enviar
     )
 
+    # Limpiar archivos locales después de enviarlos
+    if os.path.exists(final_path):
+        os.remove(final_path)
+    if os.path.exists(parte_estatica):
+        os.remove(parte_estatica)
+    logging.info("🗑️ Archivos temporales eliminados.")
+
     chat_json["Chat"]["mensaje_id"] = msg.id
-    with open(json_filename, "w", encoding="utf-8") as f:
-        json.dump(chat_json, f, indent=4, ensure_ascii=False)
+
+    chat_json["Chat"]["mensaje_id"] = msg.id
+    async with file_lock:
+        with open(json_filename, "w", encoding="utf-8") as f:
+            json.dump(chat_json, f, indent=4, ensure_ascii=False)
 
     task = asyncio.create_task(monitor_chat(channel, msg.id, duracion, interaction.user))
     active_monitors[channel.id] = {"tarea": task, "hasta": datetime.datetime.now(timezone.utc) + datetime.timedelta(minutes=duracion)}
@@ -349,8 +404,9 @@ async def forzaractualizacion(interaction: discord.Interaction):
         embed = discord.Embed(title="❌ Error", description="No se ha generado un chat para este canal.", color=0xFF0000)
         return await interaction.followup.send(embed=embed)
 
-    with open(json_filename, "r", encoding="utf-8") as f:
-        chat_json = json.load(f)
+    async with file_lock:
+        with open(json_filename, "r", encoding="utf-8") as f:
+            chat_json = json.load(f)
 
     mensaje_id = chat_json["Chat"].get("mensaje_id")
     if not mensaje_id:
@@ -362,14 +418,18 @@ async def forzaractualizacion(interaction: discord.Interaction):
 
     cambios = await actualizar_chat_logica(interaction.channel, chat_json, interaction.user)
     if cambios:
-        with open(json_filename, "w", encoding="utf-8") as f:
-            json.dump(chat_json, f, indent=4, ensure_ascii=False)
+        async with file_lock:
+            with open(json_filename, "w", encoding="utf-8") as f:
+                json.dump(chat_json, f, indent=4, ensure_ascii=False)
 
         final_path = await generar_imagen_segmentada(chat_json, interaction.channel.id)
 
         try:
             msg = await interaction.channel.fetch_message(mensaje_id)
             await msg.edit(content="✅ (Actualizado manual)", attachments=[discord.File(final_path)])
+            
+            if os.path.exists(final_path):
+                os.remove(final_path)
         except discord.NotFound:
             return await interaction.followup.send("❌ No se encontró el mensaje original.")
 
@@ -433,7 +493,7 @@ async def detenermonitor(interaction: discord.Interaction):
 @requiere_admin()
 async def editarpersonaje(interaction: discord.Interaction, nombre: str):
     await interaction.response.defer(ephemeral=True)
-    personaje = buscar_personaje_por_nombre(nombre)
+    personaje = await buscar_personaje_por_nombre_db(nombre)
 
     if not personaje:
         embed = discord.Embed(
@@ -466,10 +526,9 @@ async def editarpersonaje(interaction: discord.Interaction, nombre: str):
 
 @bot.event
 async def on_ready():
+    await inicializar_base()
     await tree.sync()
     logging.info(f"Bot listo como {bot.user}")
 
-api = "API_Bot.txt"
-with open(api, "r") as f:
-    token = f.read().strip()
-bot.run(token)
+
+bot.run(TOKEN)

@@ -4,3 +4,4 @@ bot/exportaciones
 bot/__pycache__
 bot/botdiscord.sqlite
 bot/eridubot.sqlite
+.env
