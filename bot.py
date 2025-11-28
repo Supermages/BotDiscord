@@ -13,7 +13,8 @@ import re
 from core.database import (
     inicializar_base, obtener_personaje, guardar_personaje, 
     obtener_tupperbox_webhook, guardar_tupperbox_webhook,
-    buscar_personaje_por_nombre_db # Recuerda usar la nueva función DB
+    buscar_personaje_por_nombre_db,
+    set_modo_captura, get_modo_captura
 )
 from ui.views import LadoView, EditPersonajeView
 from renderer.captura import generar_captura
@@ -33,7 +34,17 @@ ROL_REQUERIDO = os.getenv('ROL_ADMIN')
 # Definir ruta absoluta para guardar las imágenes en 'data/exportaciones'
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 EXPORT_FOLDER = os.path.join(BASE_DIR, 'data', 'exportaciones')
-MAX_MENSAJES_POR_IMAGEN = 10  # Ajustable desde código
+try:
+    LIMIT_TOTAL = int(os.getenv('MAX_MENSAJES_TOTAL', 50))
+    CHUNK_SIZE = int(os.getenv('MENSAJES_POR_IMAGEN', 10))
+except:
+    LIMIT_TOTAL = 50
+    CHUNK_SIZE = 10
+try:
+    SEARCH_LIMIT = int(os.getenv('SEARCH_LIMIT', 500))
+except:
+    SEARCH_LIMIT = 500
+
 active_monitors = {}
 file_lock = asyncio.Lock()
 
@@ -67,8 +78,20 @@ def requiere_admin():
         return False
     return app_commands.check(predicate)
 
+# En bot.py
+
 def limpiar_formato_discord(texto: str) -> str:
-    import re
+    # 1. Procesar Emojis Personalizados (<:nombre:ID> y <a:nombre:ID>)
+    def reemplazo_emoji(match):
+        animado, nombre, id_emoji = match.groups()
+        ext = "gif" if animado else "png"
+        url = f"https://cdn.discordapp.com/emojis/{id_emoji}.{ext}"
+        # Insertamos una etiqueta IMG con estilos para que parezca texto
+        return f'<img src="{url}" alt=":{nombre}:" style="width: 22px; height: 22px; vertical-align: middle; object-fit: contain;">'
+
+    texto = re.sub(r'<(a?):(\w+):(\d+)>', reemplazo_emoji, texto)
+
+    # 2. Limpieza estándar (la que ya tenías)
     texto = re.sub(r'```.*?```', '', texto, flags=re.DOTALL)
     texto = re.sub(r'`([^`]*)`', r'\1', texto)
     texto = re.sub(r'\*\*\*([^*]+)\*\*\*', r'\1', texto)
@@ -77,6 +100,7 @@ def limpiar_formato_discord(texto: str) -> str:
     texto = re.sub(r'__([^_]+)__', r'\1', texto)
     texto = re.sub(r'~~([^~]+)~~', r'\1', texto)
     texto = re.sub(r'\|\|([^|]+)\|\|', r'\1', texto)
+    
     return texto.strip()
 
 # ---------------------------- UTILIDADES ----------------------------
@@ -142,68 +166,146 @@ async def detectar_tupperbox_id(channel: discord.TextChannel) -> int | None:
 
 async def actualizar_chat_logica(channel, chat_json, solicitante=None):
     mensajes_guardados = chat_json["Chat"]["mensajes"]
+    # Usamos un set para evitar duplicados basándonos en el contenido (puedes mejorar esto usando IDs si quieres ser estricto)
     mensajes_guardados_contenido = set(m["Mensaje"] for m in mensajes_guardados)
     nuevos_mensajes = []
     last_id = chat_json["Chat"].get("ultimo_id")
 
-    # Detectar ID de Tupperbox dinámicamente
-    tupperbox_id = await detectar_tupperbox_id(channel)
-    if not tupperbox_id:
-        logging.warning("No se pudo detectar el ID de Tupperbox.")
-        return False
+    # 1. OBTENER MODO DE CAPTURA
+    # Si falla la lectura, asumimos 'TUPPER' por seguridad
+    try:
+        modo_captura = await get_modo_captura(channel.guild.id)
+    except:
+        modo_captura = 'TUPPER'
 
-    async for msg in channel.history(after=discord.Object(id=last_id)) if last_id else channel.history(limit=100):
-        if msg.webhook_id and msg.author.id == tupperbox_id and msg.content not in mensajes_guardados_contenido:
+    tupperbox_id = None
+
+    # 2. LÓGICA DE DETECCIÓN DE ID
+    # Solo buscamos el ID si es estrictamente necesario (Modo TUPPER)
+    if modo_captura == 'TUPPER':
+        tupperbox_id = await detectar_tupperbox_id(channel)
+        if not tupperbox_id:
+            # Solo retornamos False si estamos en modo Tupper y falló la detección
+            logging.warning(f"Monitor: No se detectó ID de Tupperbox en #{channel.name} (Modo estricto).")
+            return False
+
+    # 3. DEFINIR ITERADOR (Historial)
+    # Si tenemos un último ID, buscamos a partir de ahí (after=last_id va de viejo a nuevo)
+    # Si no, cogemos los últimos 100 (limit=100 va de nuevo a viejo)
+    if last_id:
+        iterator = channel.history(after=discord.Object(id=last_id))
+    else:
+        iterator = channel.history(limit=100)
+
+    async for msg in iterator:
+        # FILTRO: ¿Debemos procesar este mensaje?
+        procesar = False
+        
+        if modo_captura == 'TUPPER':
+            # Solo si es webhook y coincide con el ID detectado
+            if msg.webhook_id and msg.author.id == tupperbox_id:
+                procesar = True
+        else:
+            # Modo TODO: Procesamos todo excepto al propio bot y comandos que empiecen por "!"
+            if msg.author.id != bot.user.id and not msg.content.startswith("!"):
+                procesar = True
+
+        # Limpiamos el contenido (incluyendo emojis personalizados)
+        contenido_limpio = limpiar_formato_discord(msg.content)
+
+        # Si pasa el filtro y no es duplicado
+        if procesar and contenido_limpio not in mensajes_guardados_contenido:
+            
+            # --- PROCESAMIENTO DEL MENSAJE ---
             personaje_nombre = msg.author.display_name
-             # Limpiar nombre: solo letras, números y guion bajo
+            # Sanitizar nombre para ID interno
             tupper_tag = re.sub(r'[^a-zA-Z0-9_]', '_', str(msg.author.name))
-            avatar_url = str(msg.author.avatar.url) if msg.author.avatar else "https://cdn.pixabay.com/photo/2015/10/05/22/37/blank-profile-picture-973460_1280.png"
+            
+            # Obtener Avatar
+            if msg.author.avatar:
+                avatar_url = str(msg.author.avatar.url)
+            else:
+                avatar_url = "https://cdn.discordapp.com/embed/avatars/0.png"
+            
+            # Buscar en Base de Datos
             personaje = await obtener_personaje(tupper_tag)
 
-            if not personaje and solicitante:
-                try:
-                    view = LadoView(solicitante.id, tupper_tag, personaje_nombre, avatar_url)
-                    await solicitante.send(f"📢 ¿Dónde quieres colocar a **{personaje_nombre}**?", view=view)
-                    await view.wait()
-                    lado = view.lado or "I"
-                    color = "#2C58E2" if lado == "D" else "#FFFFFF"
-                    color_texto = "#FFFFFF" if lado == "D" else "#000000"
-                    await guardar_personaje(tupper_tag, personaje_nombre, lado, avatar_url, color, color_texto)
-                except discord.Forbidden:
-                    logging.warning(f"No se pudo enviar DM a {solicitante.display_name}")
-                    continue
-            elif not personaje:
-                continue
+            # Si el personaje NO existe en la base de datos...
+            if not personaje:
+                # En el monitor automático, NO enviamos DMs para no hacer spam masivo.
+                # Lo registramos automáticamente a la Izquierda (Blanco).
+                lado = "I"
+                color, color_texto = "#FFFFFF", "#000000"
+                
+                # Guardamos en DB
+                await guardar_personaje(tupper_tag, personaje_nombre, lado, avatar_url, color, color_texto)
             
-            adjuntos = []
+        # ... dentro del bucle for msg in ...
+        
+        # 1. Recogemos adjuntos (Imágenes y Archivos)
+        adjuntos = []
+        if msg.attachments:
+            for a in msg.attachments:
+                # Guardamos un objeto con tipo para ayudar al JS
+                es_imagen = a.content_type and "image" in a.content_type
+                adjuntos.append({
+                    "url": a.url,
+                    "filename": a.filename,
+                    "tipo": "imagen" if es_imagen else "archivo"
+                })
 
-            # Archivos adjuntos tradicionales
-            if msg.attachments:
-                adjuntos.extend([a.url for a in msg.attachments])
+        # 2. Recogemos Stickers (Ojo: Lottie/JSON no se verá, solo PNG/APNG)
+        if msg.stickers:
+            for sticker in msg.stickers:
+                # Los stickers suelen ser imágenes, los tratamos como tal
+                if sticker.format != discord.StickerFormatType.lottie: # Ignoramos Lottie (animaciones complejas)
+                    adjuntos.append({
+                        "url": sticker.url,
+                        "filename": "sticker.png",
+                        "tipo": "sticker"
+                    })
 
-            # Embeds con imágenes
-            if msg.embeds:
-                for embed in msg.embeds:
-                    if embed.image and embed.image.url:
-                        adjuntos.append(embed.image.url)
+        # 3. Recogemos Embeds (GIFs de Tenor/Giphy)
+        if msg.embeds:
+            for embed in msg.embeds:
+                if embed.image and embed.image.url:
+                    adjuntos.append({
+                        "url": embed.image.url,
+                        "filename": "image.png",
+                        "tipo": "imagen"
+                    })
+                # A veces los GIFs salen como 'thumbnail' en ciertos embeds
+                elif embed.thumbnail and embed.thumbnail.url:
+                     adjuntos.append({
+                        "url": embed.thumbnail.url,
+                        "filename": "thumbnail.png",
+                        "tipo": "imagen"
+                    })
             
-            nuevos_mensajes.append({
-                "Personaje": tupper_tag,
-                "Mensaje": limpiar_formato_discord(msg.content),
-                "Adjuntos": adjuntos
-            })
+            # Actualizamos el último ID procesado
             chat_json["Chat"]["ultimo_id"] = msg.id
 
+    # 4. GUARDAR CAMBIOS
     if nuevos_mensajes:
-        chat_json["Chat"]["mensajes"].extend(reversed(nuevos_mensajes))
+        logging.info(f"Monitor: Se encontraron {len(nuevos_mensajes)} mensajes nuevos en #{channel.name}")
+        
+        # IMPORTANTE: Ordenación
+        # Si usamos 'last_id' (after), Discord nos dio los mensajes de viejo a nuevo -> Append directo.
+        # Si NO usamos 'last_id' (limit), Discord nos dio de nuevo a viejo -> Reversed.
+        if last_id:
+            chat_json["Chat"]["mensajes"].extend(nuevos_mensajes)
+        else:
+            chat_json["Chat"]["mensajes"].extend(reversed(nuevos_mensajes))
+
         chat_json["Chat"]["fecha"] = datetime.datetime.now(timezone.utc).strftime("%Y-%m-%d_%H-%M-%S")
         return True
+    
     return False
 
 async def generar_imagen_segmentada(chat_json, canal_id):
     partes = [
-        chat_json["Chat"]["mensajes"][i:i + MAX_MENSAJES_POR_IMAGEN]
-        for i in range(0, len(chat_json["Chat"]["mensajes"]), MAX_MENSAJES_POR_IMAGEN)
+        chat_json["Chat"]["mensajes"][i:i + CHUNK_SIZE]
+        for i in range(0, len(chat_json["Chat"]["mensajes"]), CHUNK_SIZE)
     ]
 
     if not partes:
@@ -239,160 +341,280 @@ async def generar_imagen_segmentada(chat_json, canal_id):
 
 
 
+# --- MONITOR CHAT CORREGIDO ---
 async def monitor_chat(channel, message_id, duration_minutes, solicitante):
-    logging.info(f"Monitor iniciado en #{channel.name} por {duration_minutes} minutos")
-    json_filename = f"{EXPORT_FOLDER}/chat_{channel.id}.json"
+    logging.info(f"Monitor iniciado en #{channel.name} ({duration_minutes} min)")
+    json_filename = os.path.join(EXPORT_FOLDER, f"chat_{channel.id}.json")
     end_time = datetime.datetime.now(timezone.utc) + datetime.timedelta(minutes=duration_minutes)
+
     async with file_lock:
         with open(json_filename, "r", encoding="utf-8") as f:
             chat_json = json.load(f)
 
     while datetime.datetime.now(timezone.utc) < end_time:
+        # Buscamos cambios
         cambios = await actualizar_chat_logica(channel, chat_json, solicitante)
+        
         if cambios:
+            # Recorte de seguridad (Si supera el límite TOTAL del .env, cortamos los viejos)
+            if len(chat_json["Chat"]["mensajes"]) > LIMIT_TOTAL:
+                chat_json["Chat"]["mensajes"] = chat_json["Chat"]["mensajes"][-LIMIT_TOTAL:]
+                logging.info(f"Monitor: Recortando historial a {LIMIT_TOTAL} mensajes.")
+            
+            # Guardamos JSON actualizado
             async with file_lock:
                 with open(json_filename, "w", encoding="utf-8") as f:
                     json.dump(chat_json, f, indent=4, ensure_ascii=False)
 
-            partes = [
-                chat_json["Chat"]["mensajes"][i:i + MAX_MENSAJES_POR_IMAGEN]
-                for i in range(0, len(chat_json["Chat"]["mensajes"]), MAX_MENSAJES_POR_IMAGEN)
-            ]
-
-            ultima_parte = {
-                "Chat": {
-                    "titulo": chat_json["Chat"]["titulo"] + f" (actualizado parte {len(partes)})",
-                    "fecha": chat_json["Chat"]["fecha"],
-                    "mensajes": partes[-1]
-                }
-            }
-
-            imagen_path = await generar_captura(ultima_parte)
-            final_path = f"{EXPORT_FOLDER}/chat_{channel.id}.png"
-            os.replace(imagen_path, final_path)
-
+            # REGENERAMOS TODAS LAS PARTES
+            # (Porque si entra un mensaje nuevo, puede desplazar los textos de todas las imágenes)
             try:
-                mensaje = await channel.fetch_message(message_id)
-                await mensaje.edit(content="✅ (Actualizado)", attachments=[discord.File(final_path)])
+                rutas_imagenes = await generar_imagenes_por_lotes(channel.id, chat_json, chat_json["Chat"]["titulo"])
+                archivos_discord = [discord.File(path) for path in rutas_imagenes]
 
-                if os.path.exists(final_path):
-                    os.remove(final_path)
+                mensaje = await channel.fetch_message(message_id)
+                
+                # Editamos el mensaje reemplazando TODOS los adjuntos
+                await mensaje.edit(
+                    content=f"✅ (Actualizado {datetime.datetime.now().strftime('%H:%M')}) - {len(rutas_imagenes)} partes", 
+                    attachments=archivos_discord
+                )
+                
+                # Limpiar
+                for path in rutas_imagenes:
+                    if os.path.exists(path): os.remove(path)
+                
             except discord.NotFound:
-                logging.warning("Mensaje original no encontrado para editar")
+                logging.warning("El mensaje del monitor fue borrado. Deteniendo.")
+                break
+            except Exception as e:
+                logging.error(f"Error en ciclo monitor: {e}")
 
         await asyncio.sleep(60)
 
     logging.info(f"Monitor finalizado en #{channel.name}")
     active_monitors.pop(channel.id, None)
 
+async def generar_imagenes_por_lotes(channel_id, chat_json, titulo_base):
+    mensajes = chat_json["Chat"]["mensajes"]
+    # Dividir mensajes en trozos de tamaño CHUNK_SIZE
+    chunks = [mensajes[i:i + CHUNK_SIZE] for i in range(0, len(mensajes), CHUNK_SIZE)]
+    
+    rutas_archivos = []
+    
+    for i, chunk in enumerate(chunks):
+        # Crear un JSON temporal solo con este trozo de mensajes
+        parte_json = {
+            "Chat": {
+                "titulo": f"{titulo_base} (Parte {i+1}/{len(chunks)})",
+                "fecha": chat_json["Chat"]["fecha"],
+                "mensajes": chunk
+            }
+        }
+        
+        # Generar captura de este trozo
+        temp_path = await generar_captura(parte_json)
+        
+        # Renombrar para organizar
+        final_path = os.path.join(EXPORT_FOLDER, f"chat_{channel_id}_part{i+1}.png")
+        if os.path.exists(final_path): os.remove(final_path)
+        os.replace(temp_path, final_path)
+        
+        rutas_archivos.append(final_path)
+        
+    return rutas_archivos
+
 # ---------------------------- COMANDOS SLASH ----------------------------
 
-@tree.command(name="generarchat", description="Genera un chat estilizado con monitoreo automático.")
-@app_commands.describe(cantidad="Cantidad de mensajes", title="Título del chat", duracion="Duración del monitoreo en minutos")
+# --- COMANDO GENERARCHAT CORREGIDO ---
+@tree.command(name="generarchat", description="Genera un chat segmentado en varias imágenes.")
+@app_commands.describe(cantidad="Cantidad total de mensajes", title="Título del chat", duracion="Duración monitor (min)")
 @requiere_admin()
 async def generarchat(interaction: discord.Interaction, cantidad: int = 20, title: str = "chat", duracion: int = 5):
+    # --- 1. LÓGICA ANTI-CONFLICTOS (NUEVO) ---
+    channel = interaction.channel
+    
+    # Verificamos si ya existe un monitor en este canal
+    if channel.id in active_monitors:
+        old_monitor = active_monitors[channel.id]
+        
+        # Cancelamos la tarea antigua
+        old_monitor["tarea"].cancel()
+        
+        # (Opcional) Avisamos por log
+        logging.info(f"⚠️ Monitor anterior en #{channel.name} detenido para iniciar uno nuevo.")
+        
+        # Eliminamos la referencia (aunque se sobrescribirá al final, es buena práctica limpiar)
+        del active_monitors[channel.id]
+        
+        # Opcional: Avisar al usuario
+        await interaction.channel.send("🔄 Se ha detenido el monitor anterior para iniciar el nuevo.", delete_after=5)
+    
+    # 1. Validación de seguridad (Límite del .env)
+    if cantidad > LIMIT_TOTAL:
+        return await interaction.response.send_message(
+            f"❌ **Límite excedido.** El máximo permitido es **{LIMIT_TOTAL}** mensajes.", ephemeral=True
+        )
+
     await interaction.response.defer()
     channel = interaction.channel
-    mensajes_json = []
-    tupper_msgs = []
-    tupperbox_id = await detectar_tupperbox_id(channel)
-    if not tupperbox_id:
-        return await interaction.followup.send("❌ No se pudo detectar un bot de Tupperbox en este canal.")
+    
+    # 2. Obtenemos el modo
+    modo_captura = await get_modo_captura(interaction.guild_id)
+    mensajes_a_procesar = []
+    
+    logging.info(f"GenerarChat: Iniciando. Modo: {modo_captura} | Cantidad: {cantidad}")
 
-    async for msg in channel.history(limit=100):
-        if msg.webhook_id and msg.author.id == tupperbox_id:
-            tupper_msgs.append(msg)
-        if len(tupper_msgs) >= cantidad:
-            break
 
-    # filepath: c:\Users\nicol\Downloads\Bot Discord\BotDiscord\bot\bot.py
-    for msg in reversed(tupper_msgs[:cantidad]):
-        personaje_nombre = msg.author.display_name
-        tupper_tag = re.sub(r'[^a-zA-Z0-9_]', '_', str(msg.author.name))
-        avatar_url = str(msg.author.avatar.url) if msg.author.avatar else "https://cdn.pixabay.com/photo/2015/10/05/22/37/blank-profile-picture-973460_1280.png"
-        personaje = await obtener_personaje(tupper_tag)
 
-        if not personaje:
-            try:
-                view = LadoView(interaction.user.id, tupper_tag, personaje_nombre, avatar_url)
-                await interaction.user.send(f"📢 ¿Dónde quieres colocar a **{personaje_nombre}**?", view=view)
-                await view.wait()
-                lado = view.lado or "I"
-                color = "#2C58E2" if lado == "D" else "#FFFFFF"
-                color_texto = "#FFFFFF" if lado == "D" else "#000000"
-                await guardar_personaje(tupper_tag, personaje_nombre, lado, avatar_url, color, color_texto)
-            except discord.Forbidden:
+    # --- LÓGICA DE SELECCIÓN ---
+    if modo_captura == 'TUPPER':
+        tupperbox_id = await detectar_tupperbox_id(channel)
+        if not tupperbox_id:
+            return await interaction.followup.send("❌ No se detectó Tupperbox y el modo es 'Solo Tupper'.")
+            
+        # CAMBIO: Usamos 'search_depth' en lugar de 100 fijo
+        async for msg in channel.history(limit=SEARCH_LIMIT):
+            if msg.webhook_id and msg.author.id == tupperbox_id:
+                mensajes_a_procesar.append(msg)
+            
+            # CONDICIÓN DE PARADA: Ya tenemos los que queríamos
+            if len(mensajes_a_procesar) >= cantidad:
+                break
+    else:
+        # Modo TODO (La corrección que hicimos antes)
+        async for msg in channel.history(limit=SEARCH_LIMIT): # Aplicamos el mismo límite de seguridad aquí también
+            if msg.author.id == bot.user.id or msg.content.startswith("!"):
                 continue
+            mensajes_a_procesar.append(msg)
+            if len(mensajes_a_procesar) >= cantidad:
+                break
+
+    logging.info(f"GenerarChat: Se procesarán {len(mensajes_a_procesar)} mensajes.")
+
+    # 4. Procesamiento de Datos (Tupper/User, Colores, DB)
+    mensajes_json = []
+    for msg in reversed(mensajes_a_procesar):
+        personaje_nombre = msg.author.display_name
+        tupper_tag = re.sub(r'[^a-zA-Z0-9_]', '_', str(msg.author.name)) 
         
+        avatar_url = str(msg.author.avatar.url) if msg.author.avatar else "https://cdn.discordapp.com/embed/avatars/0.png"
+        
+        # Buscar o preguntar (Lógica mantenida de tu código)
+        personaje = await obtener_personaje(tupper_tag)
+        if not personaje:
+            if modo_captura == 'TUPPER' or msg.author.id == interaction.user.id:
+                try:
+                    view = LadoView(interaction.user.id, tupper_tag, personaje_nombre, avatar_url)
+                    aviso = await interaction.followup.send(f"📢 **{personaje_nombre}** nuevo. ¿Lado?", view=view, ephemeral=True)
+                    await view.wait()
+                    lado = view.lado or "I"
+                    await guardar_personaje(tupper_tag, personaje_nombre, lado, avatar_url, "#FFFFFF", "#000000")
+                    try: await aviso.delete() 
+                    except: pass
+                except:
+                    lado = "I"
+                    await guardar_personaje(tupper_tag, personaje_nombre, lado, avatar_url)
+            else:
+                await guardar_personaje(tupper_tag, personaje_nombre, "I", avatar_url)
+
+        # Recoger adjuntos
         adjuntos = []
-
-        # Archivos adjuntos tradicionales
         if msg.attachments:
-            adjuntos.extend([a.url for a in msg.attachments])
+            for a in msg.attachments:
+                # Guardamos un objeto con tipo para ayudar al JS
+                es_imagen = a.content_type and "image" in a.content_type
+                adjuntos.append({
+                    "url": a.url,
+                    "filename": a.filename,
+                    "tipo": "imagen" if es_imagen else "archivo"
+                })
 
-        # Embeds con imágenes
+        # 2. Recogemos Stickers (Ojo: Lottie/JSON no se verá, solo PNG/APNG)
+        if msg.stickers:
+            for sticker in msg.stickers:
+                # Los stickers suelen ser imágenes, los tratamos como tal
+                if sticker.format != discord.StickerFormatType.lottie: # Ignoramos Lottie (animaciones complejas)
+                    adjuntos.append({
+                        "url": sticker.url,
+                        "filename": "sticker.png",
+                        "tipo": "sticker"
+                    })
+
+        # 3. Recogemos Embeds (GIFs de Tenor/Giphy)
         if msg.embeds:
             for embed in msg.embeds:
                 if embed.image and embed.image.url:
-                    adjuntos.append(embed.image.url)
-
+                    adjuntos.append({
+                        "url": embed.image.url,
+                        "filename": "image.png",
+                        "tipo": "imagen"
+                    })
+                # A veces los GIFs salen como 'thumbnail' en ciertos embeds
+                elif embed.thumbnail and embed.thumbnail.url:
+                     adjuntos.append({
+                        "url": embed.thumbnail.url,
+                        "filename": "thumbnail.png",
+                        "tipo": "imagen"
+                    })
 
         mensajes_json.append({
             "Personaje": tupper_tag,
             "Mensaje": limpiar_formato_discord(msg.content),
-            "Adjuntos": adjuntos
+            "Adjuntos": adjuntos # Ahora pasamos una lista de objetos, no solo strings
         })
 
+    # 5. Guardar JSON Maestro
     timestamp = datetime.datetime.now(timezone.utc).strftime("%Y-%m-%d_%H-%M-%S")
-    last_id = tupper_msgs[0].id if tupper_msgs else None
+    titulo_real = title if title != "chat" else channel.name
+    last_id = mensajes_a_procesar[0].id if mensajes_a_procesar else None
+    
     chat_json = {
         "Chat": {
-            "titulo": title if title != "chat" else channel.name,
+            "titulo": titulo_real,
             "fecha": timestamp,
             "ultimo_id": last_id,
             "mensajes": mensajes_json
         }
     }
 
-    json_filename = f"{EXPORT_FOLDER}/chat_{channel.id}.json"
-    
+    json_filename = os.path.join(EXPORT_FOLDER, f"chat_{channel.id}.json")
     async with file_lock:
         with open(json_filename, "w", encoding="utf-8") as f:
             json.dump(chat_json, f, indent=4, ensure_ascii=False)
 
-    # Generar imagen segmentada
-    final_path = await generar_imagen_segmentada(chat_json, channel.id)
+    # 6. GENERACIÓN POR LOTES (Aquí ocurre la magia)
+    try:
+        logging.info("Generando imágenes por lotes...")
+        rutas_imagenes = await generar_imagenes_por_lotes(channel.id, chat_json, titulo_real)
+        
+        archivos_discord = [discord.File(path) for path in rutas_imagenes]
+        
+        msg = await interaction.followup.send(
+            content=f"✅ Chat generado en **{len(rutas_imagenes)} partes**:",
+            files=archivos_discord
+        )
 
-    # Enviar parte estática si existe
-    parte_estatica = f"{EXPORT_FOLDER}/chat_{channel.id}_parte1.png"
-    archivos_a_enviar = []
+        # Limpiar archivos generados
+        for path in rutas_imagenes:
+            if os.path.exists(path): os.remove(path)
 
-    if os.path.exists(parte_estatica):
-        archivos_a_enviar.append(discord.File(parte_estatica))
+        # Guardar ID del mensaje para el monitor
+        chat_json["Chat"]["mensaje_id"] = msg.id
+        async with file_lock:
+            with open(json_filename, "w", encoding="utf-8") as f:
+                json.dump(chat_json, f, indent=4, ensure_ascii=False)
 
-    archivos_a_enviar.append(discord.File(final_path))
-
-    msg = await interaction.followup.send(
-        content="✅ ¡Aquí tienes tu chat generado!",
-        files=archivos_a_enviar
-    )
-
-    # Limpiar archivos locales después de enviarlos
-    if os.path.exists(final_path):
-        os.remove(final_path)
-    if os.path.exists(parte_estatica):
-        os.remove(parte_estatica)
-    logging.info("🗑️ Archivos temporales eliminados.")
-
-    chat_json["Chat"]["mensaje_id"] = msg.id
-
-    chat_json["Chat"]["mensaje_id"] = msg.id
-    async with file_lock:
-        with open(json_filename, "w", encoding="utf-8") as f:
-            json.dump(chat_json, f, indent=4, ensure_ascii=False)
-
-    task = asyncio.create_task(monitor_chat(channel, msg.id, duracion, interaction.user))
-    active_monitors[channel.id] = {"tarea": task, "hasta": datetime.datetime.now(timezone.utc) + datetime.timedelta(minutes=duracion)}
+        # Iniciar Monitor
+        task = asyncio.create_task(monitor_chat(channel, msg.id, duracion, interaction.user))
+        active_monitors[channel.id] = {
+            "tarea": task, 
+            "hasta": datetime.datetime.now(timezone.utc) + datetime.timedelta(minutes=duracion)
+        }
+        
+    except Exception as e:
+        logging.error(f"Error generando imágenes: {e}")
+        await interaction.followup.send("❌ Hubo un error generando las imágenes.")
 
 @tree.command(name="forzaractualizacion", description="Fuerza la actualización del chat (detecta nuevos mensajes)")
 @requiere_admin()
@@ -523,6 +745,23 @@ async def editarpersonaje(interaction: discord.Interaction, nombre: str):
         )
         logging.warning(f"No se pudo enviar DM a {interaction.user.display_name}, se usó canal")
 
+@tree.command(name="configuracion", description="Configura el modo de captura del bot.")
+@app_commands.describe(modo="Elige qué mensajes debe capturar el bot")
+@app_commands.choices(modo=[
+    app_commands.Choice(name="🎭 Solo Tupperbox (Por defecto)", value="TUPPER"),
+    app_commands.Choice(name="📢 Todo el chat (Usuarios y Bots)", value="TODO")
+])
+@requiere_admin()
+async def configuracion(interaction: discord.Interaction, modo: app_commands.Choice[str]):
+    await set_modo_captura(interaction.guild_id, modo.value)
+    
+    texto = "🎭 **Solo Tupperbox**" if modo.value == "TUPPER" else "📢 **Todo el chat**"
+    embed = discord.Embed(
+        title="⚙️ Configuración Actualizada", 
+        description=f"Ahora el bot capturará: {texto}",
+        color=0x00FF00
+    )
+    await interaction.response.send_message(embed=embed, ephemeral=True)
 
 @bot.event
 async def on_ready():

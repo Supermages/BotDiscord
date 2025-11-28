@@ -93,20 +93,45 @@ class Chat {
     }
 
     addMessage(text, attachments = []) {
-        const messageElement = document.createElement('div');
+const messageElement = document.createElement('div');
         messageElement.classList.add('chat-box');
 
-        // Construir HTML del mensaje con adjuntos
-        let bubbleContent = text;
+        let bubbleContent = "";
+        
+        // 1. Si hay texto, lo añadimos (parseando saltos de línea)
+        if (text && text.trim().length > 0) {
+            // Convertir saltos de línea (\n) en <br> para que se vea bien
+            const textFormatted = text.replace(/\n/g, '<br>');
+            bubbleContent += `<div class="message-text">${textFormatted}</div>`;
+        }
 
+        // 2. Procesar adjuntos (Ahora recibimos objetos {url, tipo, filename})
         if (attachments && attachments.length > 0) {
-            attachments.forEach(url => {
-                if (url.match(/\.(jpeg|jpg|gif|png|webp)$/i)) {
-                    bubbleContent += `<img class="chat-attachment-img" src="${url}" alt="adjunto">`;
+            bubbleContent += `<div class="attachments-container">`;
+            
+            attachments.forEach(adj => {
+                // Si el backend envió solo strings (compatibilidad vieja), lo convertimos
+                const url = adj.url || adj; 
+                const tipo = adj.tipo || (url.match(/\.(jpeg|jpg|gif|png|webp)(\?.*)?$/i) ? 'imagen' : 'archivo');
+                const nombre = adj.filename || "Archivo adjunto";
+
+                if (tipo === 'imagen' || tipo === 'sticker') {
+                    // Imágenes y Stickers
+                    const claseExtra = tipo === 'sticker' ? 'sticker-img' : 'chat-attachment-img';
+                    bubbleContent += `<img class="${claseExtra}" src="${url}" alt="adjunto" onerror="this.style.display='none'">`;
                 } else {
-                    bubbleContent += `<a class="chat-attachment-link" href="${url}" target="_blank">Archivo adjunto</a>`;
+                    // Archivos (PDF, ZIP, etc.) -> Tarjeta visual
+                    bubbleContent += `
+                        <div class="file-card">
+                            <div class="file-icon">📄</div>
+                            <div class="file-info">
+                                <span class="file-name">${nombre}</span>
+                                <a href="${url}" target="_blank" class="file-link">Descargar</a>
+                            </div>
+                        </div>`;
                 }
             });
+            bubbleContent += `</div>`;
         }
 
         const fallbackImg = "https://cdn.discordapp.com/embed/avatars/0.png";
