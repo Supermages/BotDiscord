@@ -1,7 +1,44 @@
-API_Bot.txt
-URL_Instalacion_Bot.txt
-bot/exportaciones
-bot/__pycache__
-bot/botdiscord.sqlite
-bot/eridubot.sqlite
+# --- SEGURIDAD (¡LO MÁS IMPORTANTE!) ---
 .env
+.env.local
+.env.*
+
+# --- Python ---
+__pycache__/
+*.py[cod]
+*$py.class
+*.log
+
+# --- Entornos Virtuales ---
+venv/
+env/
+.venv/
+.env/
+
+# --- Base de Datos ---
+# Ignoramos la DB para no subir datos de usuarios a GitHub
+*.sqlite
+*.db
+data/*.sqlite
+data/*.db
+
+# --- Archivos Generados por el Bot ---
+# Ignoramos todo lo que esté dentro de exportaciones (imágenes y jsons de chat)
+data/exportaciones/*.png
+data/exportaciones/*.json
+data/exportaciones/*.jpg
+
+# Si alguna vez generas capturas en la raíz por error
+*.png
+*.jpg
+!assets/*.png  # Excepción: Si tienes una carpeta 'assets' con imágenes fijas, esas SÍ se suben
+
+# --- Sistema Operativo e IDEs ---
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# --- Playwright (Reportes temporales si los hubiera) ---
+test-results/
+playwright-report/

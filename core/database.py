@@ -22,6 +22,12 @@ async def inicializar_base():
                 webhook_id TEXT NOT NULL
             )
         ''')
+        await db.execute('''
+            CREATE TABLE IF NOT EXISTS Guild_Config (
+                guild_id TEXT PRIMARY KEY,
+                modo_captura TEXT DEFAULT 'TUPPER'
+            )
+        ''')
         await db.commit()
 
 async def obtener_personaje(tupper_tag):
@@ -78,3 +84,18 @@ async def buscar_personaje_por_nombre_db(nombre):
                 if row[1].lower() == nombre.lower():
                     return row
     return None
+
+async def set_modo_captura(guild_id, modo):
+    """ modo puede ser 'TUPPER' o 'TODO' """
+    async with aiosqlite.connect(DB_FILE) as db:
+        await db.execute('''
+            INSERT OR REPLACE INTO Guild_Config (guild_id, modo_captura)
+            VALUES (?, ?)
+        ''', (str(guild_id), modo))
+        await db.commit()
+
+async def get_modo_captura(guild_id):
+    async with aiosqlite.connect(DB_FILE) as db:
+        async with db.execute('SELECT modo_captura FROM Guild_Config WHERE guild_id = ?', (str(guild_id),)) as cursor:
+            resultado = await cursor.fetchone()
+            return resultado[0] if resultado else 'TUPPER'

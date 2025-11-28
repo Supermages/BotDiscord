@@ -1,53 +1,95 @@
-/* General styles for the Discord Bot project */
+@font-face {
+    font-family: 'HongMengTi';
+    src: url('fuentes/印品鸿蒙体.ttf') format('truetype');
+}
 
-/* Body styling */
-body {
+/* El body debe ser transparente y ajustarse a lo que haya dentro */
+html, body {
     margin: 0;
     padding: 0;
-    font-family: Arial, sans-serif;
-    background-color: #2c2f33;
-    color: #ffffff;
+    background-color: transparent;
+    width: auto;
+    height: auto;
+    overflow: hidden; /* Sin barras de scroll */
 }
 
-/* Header styling */
-header {
-    background-color: #23272a;
-    padding: 10px 20px;
-    text-align: center;
-    font-size: 1.5em;
-    color: #7289da;
+/* El contenedor principal */
+.chat-container {
+    /* ANCHO FIJO: Esto asegura que siempre se vea igual de ancho */
+    width: 480px; 
+    
+    /* ALTO AUTOMÁTICO: Crece con los mensajes */
+    height: auto; 
+    min-height: 100px;
+    
+    background: linear-gradient(to bottom, #111, #1a1a1a);
+    border: 1px solid #000;
+    border-radius: 20px;
+    
+    display: flex;
+    flex-direction: column;
+    gap: 15px;
+    
+    /* Margen interno para que el texto no toque los bordes */
+    padding: 25px;
+    
+    /* Margen externo (vital para que la sombra no se corte en la foto) */
+    margin: 20px; 
+    
+    box-shadow: 0 10px 30px rgba(0,0,0,0.8);
+    box-sizing: border-box;
+    font-family: 'HongMengTi', Arial, sans-serif;
+    color: white;
 }
 
-/* Button styling */
-button {
-    background-color: #7289da;
-    color: #ffffff;
-    border: none;
-    padding: 10px 15px;
-    border-radius: 5px;
-    cursor: pointer;
-    font-size: 1em;
+/* Título */
+.title-div {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding-bottom: 15px;
+    border-bottom: 2px solid #333;
+    font-size: 20px;
+    font-weight: bold;
+    color: #eee;
 }
 
-button:hover {
-    background-color: #5b6eae;
+.title-div svg { width: 24px; height: 24px; fill: #7289da; }
+
+/* Mensajes */
+.chat-box { display: flex; align-items: flex-start; gap: 12px; margin-bottom: 5px; }
+.chat-box.blue { flex-direction: row-reverse; }
+
+/* Avatares */
+.img-container img {
+    width: 45px; height: 45px;
+    border-radius: 50%;
+    border: 2px solid #222;
+    object-fit: cover;
 }
 
-/* Card styling */
-.card {
-    background-color: #36393f;
-    border-radius: 8px;
-    padding: 20px;
-    margin: 10px;
-    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+/* Burbujas */
+.chat-bubble {
+    padding: 12px 16px;
+    border-radius: 18px;
+    font-size: 15px;
+    line-height: 1.4;
+    max-width: 320px;
+    word-wrap: break-word;
 }
+.message-text { margin: 0; }
 
-/* Link styling */
-a {
-    color: #7289da;
-    text-decoration: none;
-}
+/* Adjuntos */
+.attachments-container { display: flex; flex-direction: column; gap: 8px; margin-top: 8px; }
+.chat-attachment-img { max-width: 100%; border-radius: 10px; }
+.sticker-img { width: 130px; height: 130px; object-fit: contain; }
 
-a:hover {
-    text-decoration: underline;
+/* Archivos */
+.file-card {
+    display: flex; align-items: center; gap: 10px;
+    background: rgba(255,255,255,0.1);
+    padding: 10px; border-radius: 8px;
 }
+.file-icon { font-size: 24px; }
+.file-name { font-weight: bold; font-size: 14px; max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.file-link { color: #00b0f4; text-decoration: none; font-size: 12px; display: block; }
