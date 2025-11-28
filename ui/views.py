@@ -1,5 +1,5 @@
 import discord
-from db import guardar_personaje
+from core.database import guardar_personaje, actualizar_personaje
 
 class LadoView(discord.ui.View):
     def __init__(self, autor_id, personaje_id, personaje_nombre, avatar_url):
@@ -16,7 +16,7 @@ class LadoView(discord.ui.View):
             await interaction.response.send_message("❌ Este botón no es para ti.", ephemeral=True)
             return
         self.lado = "I"
-        guardar_personaje(self.personaje_id, self.personaje_nombre, self.lado, self.avatar_url)
+        await guardar_personaje(self.personaje_id, self.personaje_nombre, self.lado, self.avatar_url)
         await interaction.response.edit_message(content=f"✅ {self.personaje_nombre} asignado a **Izquierda**.", view=None)
         self.stop()
 
@@ -26,12 +26,9 @@ class LadoView(discord.ui.View):
             await interaction.response.send_message("❌ Este botón no es para ti.", ephemeral=True)
             return
         self.lado = "D"
-        guardar_personaje(self.personaje_id, self.personaje_nombre, self.lado, self.avatar_url)
+        await guardar_personaje(self.personaje_id, self.personaje_nombre, self.lado, self.avatar_url)
         await interaction.response.edit_message(content=f"✅ {self.personaje_nombre} asignado a **Derecha**.", view=None)
         self.stop()
-
-import discord
-from db import actualizar_personaje, obtener_personaje
 
 class EditPersonajeView(discord.ui.View):
     def __init__(self, interaction: discord.Interaction, personaje_id, nombre, lado, color, color_texto, avatar_url):
@@ -79,7 +76,7 @@ class EditPersonajeView(discord.ui.View):
     async def guardar(self, interaction: discord.Interaction, button: discord.ui.Button):
         try:
             # Actualizar los datos del personaje en la base de datos
-            actualizar_personaje(self.personaje_id, lado=self.lado, color=self.color, color_texto=self.color_texto)
+            await actualizar_personaje(self.personaje_id, lado=self.lado, color=self.color, color_texto=self.color_texto)
             await interaction.response.send_message(content=f"✅ Cambios guardados para {self.nombre}.", ephemeral=True)
         except Exception as e:
             await interaction.response.send_message(content=f"❌ Error al guardar los cambios: {e}", ephemeral=True)
@@ -124,7 +121,9 @@ class ColorModal(discord.ui.Modal):
 
         if self.tipo == "color":
             self.view.color = color
+            await actualizar_personaje(self.view.personaje_id, color=color) ### <--- AQUÍ AÑADIDO
         else:
             self.view.color_texto = color
+            await actualizar_personaje(self.view.personaje_id, color_texto=color) ### <--- AQUÍ AÑADIDO
 
         await self.view.send_preview()

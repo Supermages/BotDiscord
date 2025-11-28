@@ -109,6 +109,8 @@ class Chat {
             });
         }
 
+        const fallbackImg = "https://cdn.discordapp.com/embed/avatars/0.png";
+
         if (this.derecha) {
             messageElement.classList.add('blue');
             messageElement.innerHTML = `
@@ -116,13 +118,13 @@ class Chat {
                     ${bubbleContent}
                 </div>
                 <div class="img-container">
-                    <img src="${this.imgSrc}" alt="Imagen de perfil">
+                    <img src="${this.imgSrc}" alt="Imagen de perfil" onerror="this.onerror=null;this.src='${fallbackImg}';">
                 </div>
             `;
         } else {
             messageElement.innerHTML = `
                 <div class="img-container">
-                    <img src="${this.imgSrc}" alt="Imagen de perfil">
+                    <img src="${this.imgSrc}" alt="Imagen de perfil" onerror="this.onerror=null;this.src='${fallbackImg}';">
                 </div>
                 <div class="chat-bubble ${this.user}">
                     ${bubbleContent}
@@ -135,6 +137,8 @@ class Chat {
 }
 window.Chat = Chat;
 // Ejemplo de uso
+// --- BORRA O COMENTA DESDE AQUÍ HACIA ABAJO ---
+/*
 document.addEventListener('DOMContentLoaded', () => {
     document.getElementById("title").textContent = "Chat";
     window.chat = new Chat('.chat-container', '#2C58E2', 'white', 'https://cdn.pixabay.com/photo/2015/10/05/22/37/blank-profile-picture-973460_1280.png', true, 'user1');
@@ -161,5 +165,7 @@ document.addEventListener('DOMContentLoaded', () => {
     chat2.addMessage('Estoy bien, gracias. ¿Y tú? 😀');
     chat3.addMessage('Estoy bien, gracias. ¿Y tú?');
     chat.addMessage('¡Genial! ¿Qué tal tu día? fdsa fdsaf dsaf dsa');
-    
+
 });
+*/
+// ----------------------------------------------
