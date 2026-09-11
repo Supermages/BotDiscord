@@ -19,14 +19,11 @@ class Config:
     TUPPER_WEBHOOK_ID = os.getenv("TUPPER_WEBHOOK_ID", "").strip()
 
     # --- Persistencia y Rutas en la Nube ---
-    DATABASE_PATH = os.getenv(
-        "DATABASE_PATH", 
-        os.path.join(BASE_DIR, "data", "eridubot.sqlite")
-    )
-    EXPORT_FOLDER = os.getenv(
-        "EXPORT_FOLDER", 
-        os.path.join(BASE_DIR, "data", "exportaciones")
-    )
+    _raw_db = os.getenv("DATABASE_PATH", os.path.join("data", "eridubot.sqlite"))
+    DATABASE_PATH = _raw_db if os.path.isabs(_raw_db) else os.path.normpath(os.path.join(BASE_DIR, _raw_db))
+
+    _raw_export = os.getenv("EXPORT_FOLDER", os.path.join("data", "exportaciones"))
+    EXPORT_FOLDER = _raw_export if os.path.isabs(_raw_export) else os.path.normpath(os.path.join(BASE_DIR, _raw_export))
 
     # --- Límites de Mensajes y Segmentación ---
     try:
