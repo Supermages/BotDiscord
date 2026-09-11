@@ -57,3 +57,57 @@ async def detectar_tupperbox_id(channel: discord.TextChannel) -> int | None:
 
     logging.warning(f"[⚠️] No se detectó ningún ID de Tupperbox en #{channel.name}")
     return None
+
+import time
+from collections import deque
+
+class TupperMatchEngine:
+    """
+    Motor en memoria para correlacionar mensajes humanos recientes con mensajes
+    de webhook de Tupperbox y deducir automáticamente la autoría.
+    """
+    def __init__(self, max_history_per_channel: int = 50, max_age_seconds: float = 5.0):
+        self._buffers: dict[int, deque] = {}
+        self.max_history = max_history_per_channel
+        self.max_age_seconds = max_age_seconds
+
+    def registrar_mensaje_humano(self, channel_id: int, user_id: int, content: str):
+        now = time.time()
+        if channel_id not in self._buffers:
+            self._buffers[channel_id] = deque(maxlen=self.max_history)
+        
+        texto_limpio = content.strip()
+        if texto_limpio:
+            self._buffers[channel_id].append({
+                "user_id": user_id,
+                "content": texto_limpio,
+                "timestamp": now
+            })
+
+    def buscar_coincidencia(self, channel_id: int, webhook_content: str) -> int | None:
+        if channel_id not in self._buffers:
+            return None
+
+        wh_clean = webhook_content.strip()
+        if not wh_clean:
+            return None
+
+        now = time.time()
+        buf = self._buffers[channel_id]
+
+        for entry in reversed(buf):
+            if (now - entry["timestamp"]) > self.max_age_seconds:
+                break
+
+            user_text = entry["content"]
+            # Coincidencia con formatos de Tupperbox (corchetes, prefijos, sufijos)
+            if (wh_clean == user_text or 
+                user_text.endswith(wh_clean) or 
+                user_text.startswith(wh_clean) or 
+                wh_clean in user_text):
+                return entry["user_id"]
+
+        return None
+
+tupper_matcher = TupperMatchEngine()
+
