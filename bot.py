@@ -762,6 +762,49 @@ async def configuracion(interaction: discord.Interaction, modo: app_commands.Cho
         color=0x00FF00
     )
     await interaction.response.send_message(embed=embed, ephemeral=True)
+# --- NUEVO COMANDO: MENCIONES MULTIPLES ---
+@tree.command(name="spam_ping", description="Envía un número específico de menciones a un usuario.")
+@app_commands.describe(
+    usuario="El usuario al que quieres mencionar", 
+    cantidad="Número de veces a enviar el ping (máximo 30000)"
+)
+async def spam_ping(interaction: discord.Interaction, usuario: discord.Member, cantidad: int):
+    # 1. Validación de seguridad para evitar Rate Limits de Discord
+    limite_maximo = 30000
+    
+    if cantidad > limite_maximo:
+        embed = discord.Embed(
+            title="❌ Límite excedido", 
+            description=f"Para evitar que Discord penalice al bot, el máximo de pings permitidos es **{limite_maximo}**.", 
+            color=0xFF0000
+        )
+        return await interaction.response.send_message(embed=embed, ephemeral=True)
+        
+    if cantidad <= 0:
+        return await interaction.response.send_message("❌ La cantidad debe ser mayor a 0.", ephemeral=True)
+
+    # 2. Confirmación inicial (oculta para el resto de usuarios)
+    await interaction.response.send_message(
+        f"✅ Iniciando el envío de {cantidad} pings a {usuario.display_name}...", 
+        ephemeral=True
+    )
+    logging.info(f"{interaction.user} ha iniciado {cantidad} pings hacia {usuario.name} en #{interaction.channel.name}")
+
+    # 3. Bucle de envío de mensajes
+    for i in range(cantidad):
+        try:
+            # Enviamos la mención
+            await interaction.channel.send(f"{usuario.mention}")
+            
+            # Pausa vital de 1.5 segundos para no saturar la API (HTTP 429 Too Many Requests)
+            await asyncio.sleep(1.5) 
+            
+        except discord.Forbidden:
+            logging.error(f"El bot no tiene permisos para hablar en {interaction.channel.name}")
+            break
+        except Exception as e:
+            logging.error(f"Error enviando ping: {e}")
+            break
 
 @bot.event
 async def on_ready():
