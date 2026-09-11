@@ -531,6 +531,83 @@ async def crear_o_actualizar_item(item_id: str, nombre: str, emoji: str = "📦"
         ''', (iid, nombre, emoji, categoria, descripcion, es_usable, mensaje_uso, script_uso, script_uso))
         await db.commit()
 
+async def editar_item_catalogo(
+    item_id: str,
+    nuevo_id: str = None,
+    nombre: str = None,
+    emoji: str = None,
+    categoria: str = None,
+    descripcion: str = None,
+    es_usable: int = None,
+    mensaje_uso: str = None,
+    script_uso: str = None
+) -> tuple[bool, str, dict | None]:
+    """
+    Edita cualquier propiedad de un ítem existente en el catálogo.
+    Si se especifica nuevo_id, actualiza en cascada las referencias en inventarios y recetas.
+    Retorna (éxito, mensaje, item_actualizado).
+    """
+    iid = item_id.strip().lower()
+    async with aiosqlite.connect(DB_FILE) as db:
+        db.row_factory = aiosqlite.Row
+        cur = await db.execute('SELECT * FROM Items_Catalogo WHERE item_id = ? OR LOWER(nombre) = LOWER(?)', (iid, item_id))
+        actual = await cur.fetchone()
+        if not actual:
+            return False, f"El ítem '{item_id}' no existe en el catálogo.", None
+
+        actual_dict = dict(actual)
+        target_id = actual_dict["item_id"]
+
+        # Si se solicita cambiar el ID
+        if nuevo_id and nuevo_id.strip().lower() != target_id:
+            clean_nuevo_id = re.sub(r'[^a-zA-Z0-9_\-]', '_', nuevo_id.strip().lower())
+            # Comprobar colisión
+            c_check = await db.execute('SELECT 1 FROM Items_Catalogo WHERE item_id = ?', (clean_nuevo_id,))
+            if await c_check.fetchone():
+                return False, f"Ya existe otro ítem con el identificador `{clean_nuevo_id}`.", None
+
+            # Actualizar en cascada en las tablas que referencian el ítem
+            await db.execute('UPDATE Inventarios SET item_id = ? WHERE item_id = ?', (clean_nuevo_id, target_id))
+            await db.execute('UPDATE Recetas_Crafteo SET resultado_item_id = ? WHERE resultado_item_id = ?', (clean_nuevo_id, target_id))
+            await db.execute('UPDATE Recetas_Ingredientes SET item_id = ? WHERE item_id = ?', (clean_nuevo_id, target_id))
+            await db.execute('UPDATE Items_Catalogo SET item_id = ? WHERE item_id = ?', (clean_nuevo_id, target_id))
+            target_id = clean_nuevo_id
+
+        # Determinar valores finales
+        nuevo_nombre = nombre if nombre is not None else actual_dict["nombre"]
+        nuevo_emoji = emoji if emoji is not None else actual_dict["emoji"]
+        nueva_categoria = categoria if categoria is not None else actual_dict["categoria"]
+        nueva_descripcion = descripcion if descripcion is not None else actual_dict["descripcion"]
+        nuevo_es_usable = es_usable if es_usable is not None else actual_dict["es_usable"]
+        nuevo_mensaje_uso = mensaje_uso if mensaje_uso is not None else actual_dict["mensaje_uso"]
+        nuevo_script_uso = script_uso if script_uso is not None else actual_dict["script_uso"]
+
+        await db.execute('''
+            UPDATE Items_Catalogo SET
+                nombre = ?,
+                emoji = ?,
+                categoria = ?,
+                descripcion = ?,
+                es_usable = ?,
+                mensaje_uso = ?,
+                script_uso = ?
+            WHERE item_id = ?
+        ''', (
+            nuevo_nombre,
+            nuevo_emoji,
+            nueva_categoria,
+            nueva_descripcion,
+            nuevo_es_usable,
+            nuevo_mensaje_uso,
+            nuevo_script_uso,
+            target_id
+        ))
+        await db.commit()
+
+        c_updated = await db.execute('SELECT * FROM Items_Catalogo WHERE item_id = ?', (target_id,))
+        row_up = await c_updated.fetchone()
+        return True, "Ítem modificado con éxito.", dict(row_up)
+
 async def actualizar_script_item(item_id: str, script: str) -> bool:
     """Actualiza el script Lua de un ítem en el catálogo."""
     iid = item_id.strip().lower()

@@ -16,7 +16,8 @@ from core.database import (
     listar_items_catalogo,
     establecer_limite_personajes,
     obtener_limite_personajes,
-    actualizar_script_item
+    actualizar_script_item,
+    editar_item_catalogo
 )
 from cogs.inventory_commands import (
     autocomplete_personajes_todos, 
@@ -25,6 +26,82 @@ from cogs.inventory_commands import (
 )
 from cogs.crafting_commands import autocomplete_recetas
 from services.lua_service import lua_engine
+
+class ItemEditarModal(discord.ui.Modal):
+    def __init__(self, item_data: dict):
+        super().__init__(title=f"Editar: {item_data.get('nombre', '')[:35]}")
+        self.item_id = item_data["item_id"]
+
+        self.input_nombre = discord.ui.TextInput(
+            label="Nombre visible",
+            default=item_data.get("nombre", ""),
+            max_length=100,
+            required=True
+        )
+        self.input_emoji = discord.ui.TextInput(
+            label="Emoji / Icono",
+            default=item_data.get("emoji", "📦"),
+            max_length=20,
+            required=True
+        )
+        self.input_categoria = discord.ui.TextInput(
+            label="Categoría (Consumible/Material/Arma...)",
+            default=item_data.get("categoria", "Material"),
+            max_length=50,
+            required=True
+        )
+        self.input_descripcion = discord.ui.TextInput(
+            label="Descripción",
+            style=discord.TextStyle.paragraph,
+            default=item_data.get("descripcion", ""),
+            required=False,
+            max_length=1000
+        )
+        self.input_mensaje_uso = discord.ui.TextInput(
+            label="Mensaje al consumirlo (/inv usar)",
+            style=discord.TextStyle.paragraph,
+            default=item_data.get("mensaje_uso", ""),
+            required=False,
+            max_length=1000
+        )
+
+        self.add_item(self.input_nombre)
+        self.add_item(self.input_emoji)
+        self.add_item(self.input_categoria)
+        self.add_item(self.input_descripcion)
+        self.add_item(self.input_mensaje_uso)
+
+    async def on_submit(self, interaction: discord.Interaction):
+        cat_val = self.input_categoria.value.strip() or "Material"
+        cat_val = cat_val.capitalize()
+
+        ok, msg, item_up = await editar_item_catalogo(
+            item_id=self.item_id,
+            nombre=self.input_nombre.value.strip(),
+            emoji=self.input_emoji.value.strip() or "📦",
+            categoria=cat_val,
+            descripcion=self.input_descripcion.value.strip(),
+            mensaje_uso=self.input_mensaje_uso.value.strip()
+        )
+
+        if not ok:
+            return await interaction.response.send_message(f"❌ {msg}", ephemeral=True)
+
+        embed = discord.Embed(
+            title="✏️ Ítem Modificado con Éxito",
+            description=(
+                f"• **ID:** `{item_up['item_id']}`\n"
+                f"• **Nombre:** {item_up['emoji']} **{item_up['nombre']}**\n"
+                f"• **Categoría:** `{item_up['categoria']}`\n"
+                f"• **Es Usable:** {'Sí' if item_up['es_usable'] else 'No'}\n"
+                f"• **Descripción:** *{item_up['descripcion'] or 'Sin descripción'}*"
+            ),
+            color=0x3498DB
+        )
+        if item_up.get("mensaje_uso"):
+            embed.add_field(name="Mensaje de Uso", value=f"> {item_up['mensaje_uso']}", inline=False)
+
+        await interaction.response.send_message(embed=embed)
 
 class ItemScriptModal(discord.ui.Modal):
     def __init__(self, item_id: str, item_nombre: str, current_script: str = ""):
@@ -143,6 +220,115 @@ class AdminRPGCommands(commands.Cog):
             embed.add_field(name="Mensaje de Uso", value=f"> {mensaje_uso}", inline=False)
 
         await interaction.response.send_message(embed=embed)
+
+    # ---------------------------------------------------------
+    # /admin_rpg item_editar
+    # ---------------------------------------------------------
+    @admin_rpg_group.command(name="item_editar", description="Modifica las propiedades de un ítem existente en el catálogo.")
+    @app_commands.describe(
+        item="Ítem a editar",
+        nombre="Nuevo nombre visible (dejar vacío para no cambiar o para abrir ventana modal)",
+        emoji="Nuevo emoji o icono (ej: 🧪, ⚔️)",
+        categoria="Nueva categoría del objeto",
+        descripcion="Nueva descripción del objeto",
+        es_usable="¿Se puede consumir directamente con /inv usar?",
+        mensaje_uso="Nuevo mensaje mostrado al consumirlo",
+        nuevo_id="Nuevo identificador slug (opcional, actualiza inventarios y recetas)"
+    )
+    @app_commands.choices(categoria=[
+        app_commands.Choice(name="🧪 Consumible", value="Consumible"),
+        app_commands.Choice(name="🌿 Material", value="Material"),
+        app_commands.Choice(name="⚔️ Arma / Equipo", value="Arma"),
+        app_commands.Choice(name="🎟️ Ticket", value="Ticket"),
+        app_commands.Choice(name="⭐ Especial", value="Especial")
+    ])
+    @app_commands.autocomplete(item=autocomplete_items)
+    @requiere_admin()
+    async def item_editar(
+        self,
+        interaction: discord.Interaction,
+        item: str,
+        nombre: str = None,
+        emoji: str = None,
+        categoria: app_commands.Choice[str] = None,
+        descripcion: str = None,
+        es_usable: bool = None,
+        mensaje_uso: str = None,
+        nuevo_id: str = None
+    ):
+        it_data = await obtener_item(item)
+        if not it_data:
+            return await interaction.response.send_message(f"❌ Ítem '{item}' no encontrado en el catálogo.", ephemeral=True)
+
+        # Si no se envió ningún parámetro opcional en el comando, abrir ventana Modal interactiva
+        if (
+            nombre is None and 
+            emoji is None and 
+            categoria is None and 
+            descripcion is None and 
+            es_usable is None and 
+            mensaje_uso is None and 
+            nuevo_id is None
+        ):
+            modal = ItemEditarModal(it_data)
+            return await interaction.response.send_modal(modal)
+
+        # Si se enviaron parámetros específicos en el comando, aplicar directamente
+        cat_str = categoria.value if categoria else None
+        usable_val = (1 if es_usable else 0) if es_usable is not None else None
+
+        ok, msg, item_up = await editar_item_catalogo(
+            item_id=it_data["item_id"],
+            nuevo_id=nuevo_id,
+            nombre=nombre,
+            emoji=emoji,
+            categoria=cat_str,
+            descripcion=descripcion,
+            es_usable=usable_val,
+            mensaje_uso=mensaje_uso
+        )
+
+        if not ok:
+            return await interaction.response.send_message(f"❌ {msg}", ephemeral=True)
+
+        embed = discord.Embed(
+            title="✏️ Ítem Modificado con Éxito",
+            description=(
+                f"• **ID:** `{item_up['item_id']}`\n"
+                f"• **Nombre:** {item_up['emoji']} **{item_up['nombre']}**\n"
+                f"• **Categoría:** `{item_up['categoria']}`\n"
+                f"• **Es Usable:** {'Sí' if item_up['es_usable'] else 'No'}\n"
+                f"• **Descripción:** *{item_up['descripcion'] or 'Sin descripción'}*"
+            ),
+            color=0x3498DB
+        )
+        if item_up.get("mensaje_uso"):
+            embed.add_field(name="Mensaje de Uso", value=f"> {item_up['mensaje_uso']}", inline=False)
+
+        await interaction.response.send_message(embed=embed)
+
+    # ---------------------------------------------------------
+    # /admin_rpg item_borrar
+    # ---------------------------------------------------------
+    @admin_rpg_group.command(name="item_borrar", description="Elimina un ítem del catálogo maestro.")
+    @app_commands.describe(item="Ítem a eliminar")
+    @app_commands.autocomplete(item=autocomplete_items)
+    @requiere_admin()
+    async def item_borrar(self, interaction: discord.Interaction, item: str):
+        it_data = await obtener_item(item)
+        if not it_data:
+            return await interaction.response.send_message(f"❌ Ítem '{item}' no encontrado en el catálogo.", ephemeral=True)
+
+        ok = await eliminar_item_catalogo(it_data["item_id"])
+        if ok:
+            embed = discord.Embed(
+                title="🗑️ Ítem Eliminado del Catálogo",
+                description=f"El ítem {it_data.get('emoji', '📦')} **{it_data['nombre']}** (`{it_data['item_id']}`) ha sido eliminado del catálogo.",
+                color=0xE74C3C
+            )
+            await interaction.response.send_message(embed=embed)
+        else:
+            await interaction.response.send_message(f"❌ No se pudo eliminar el ítem `{item}`.", ephemeral=True)
 
     # ---------------------------------------------------------
     # /admin_rpg item_dar
