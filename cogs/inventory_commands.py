@@ -128,6 +128,52 @@ async def autocomplete_items(interaction: discord.Interaction, current: str) -> 
             filtrados.append(app_commands.Choice(name=f"{emoji} {nombre}"[:100], value=iid[:100]))
     return filtrados[:25]
 
+async def autocomplete_mis_items_usables(interaction: discord.Interaction, current: str) -> list[app_commands.Choice[str]]:
+    """
+    Autocompletado para /inv usar:
+    Filtra y muestra exclusivamente ítems que sean consumibles/usables y que
+    el personaje seleccionado (o el activo del usuario) tenga en stock en su inventario.
+    """
+    personaje_nombre = interaction.namespace.personaje
+    target_tag = None
+
+    if personaje_nombre and personaje_nombre != "__sin_activos__":
+        p_info = await buscar_personaje_por_nombre_db(personaje_nombre)
+        if p_info:
+            target_tag = p_info[0]
+
+    if not target_tag:
+        activos = await obtener_personajes_activos(str(interaction.user.id))
+        if activos:
+            target_tag = activos[0]["tupper_tag"]
+
+    curr_norm = normalizar_texto(current)
+    choices = []
+
+    if target_tag:
+        inv = await obtener_inventario_personaje(target_tag)
+        for it in inv:
+            es_usable = bool(it.get("es_usable")) or bool(it.get("script_id")) or bool(it.get("script_uso"))
+            if it.get("cantidad", 0) > 0 and es_usable:
+                label = f"{it.get('emoji', '📦')} {it['nombre']} (Stock: x{it['cantidad']})"
+                if not curr_norm or curr_norm in normalizar_texto(it["nombre"]) or curr_norm in normalizar_texto(it["item_id"]):
+                    choices.append(app_commands.Choice(name=label[:100], value=it["item_id"][:100]))
+                if len(choices) >= 25:
+                    break
+
+    if not choices:
+        todos = await listar_items_catalogo()
+        for it in todos:
+            es_usable = bool(it.get("es_usable")) or bool(it.get("script_id")) or bool(it.get("script_uso"))
+            if es_usable:
+                label = f"{it.get('emoji', '📦')} {it['nombre']} (Usable)"
+                if not curr_norm or curr_norm in normalizar_texto(it["nombre"]) or curr_norm in normalizar_texto(it["item_id"]):
+                    choices.append(app_commands.Choice(name=label[:100], value=it["item_id"][:100]))
+                if len(choices) >= 25:
+                    break
+
+    return choices
+
 
 
 class InventoryCommands(commands.Cog):
@@ -347,7 +393,7 @@ class InventoryCommands(commands.Cog):
     )
     @app_commands.autocomplete(
         personaje=autocomplete_mis_personajes_activos,
-        item=autocomplete_items
+        item=autocomplete_mis_items_usables
     )
     async def usar(self, interaction: discord.Interaction, personaje: str, item: str, cantidad: int = 1):
         if personaje == "__sin_activos__":
