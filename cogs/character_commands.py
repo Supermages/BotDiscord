@@ -137,6 +137,13 @@ class CharacterCommands(commands.Cog):
     @app_commands.describe(personaje="Personaje de tu reserva a activar")
     @app_commands.autocomplete(personaje=autocomplete_mis_personajes_reserva)
     async def vincular(self, interaction: discord.Interaction, personaje: str):
+        if personaje == "__sin_reserva__":
+            return await interaction.response.send_message(
+                "📭 No tienes ningún personaje en reserva.\n"
+                "Puedes importar tus personajes con `/pj importar` o escribiendo con ellos mediante Tupperbox.",
+                ephemeral=True
+            )
+
         guild_id = str(interaction.guild_id) if interaction.guild_id else None
         limite = await obtener_limite_personajes(guild_id)
         
@@ -160,6 +167,13 @@ class CharacterCommands(commands.Cog):
     @app_commands.describe(personaje="Personaje activo a pasar a reserva")
     @app_commands.autocomplete(personaje=autocomplete_mis_personajes_activos)
     async def desvincular(self, interaction: discord.Interaction, personaje: str):
+        if personaje == "__sin_activos__":
+            return await interaction.response.send_message(
+                "📭 No tienes ningún personaje activo para desvincular.\n"
+                "Usa `/pj panel` o `/pj vincular` para activar uno de tu reserva primero.",
+                ephemeral=True
+            )
+
         ok, msg = await desactivar_personaje(str(interaction.user.id), personaje)
         if not ok:
             return await interaction.response.send_message(f"❌ {msg}", ephemeral=True)

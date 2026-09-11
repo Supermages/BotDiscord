@@ -8,6 +8,7 @@ from core.database import (
     obtener_inventario_personaje,
     obtener_personajes_activos,
     obtener_personajes_reserva,
+    obtener_personajes_vinculados_con_owner,
     obtener_item,
     listar_items_catalogo,
     transferir_item_atomico,
@@ -30,9 +31,17 @@ async def autocomplete_personajes_todos(interaction: discord.Interaction, curren
 async def autocomplete_mis_personajes_activos(interaction: discord.Interaction, current: str) -> list[app_commands.Choice[str]]:
     """
     Autocompletado que devuelve EXCLUSIVAMENTE los personajes activos del usuario que ejecuta el comando.
-    (Incluso para administradores, para evitar saturación de personajes ajenos).
+    Si el usuario no tiene ningún personaje activo, retorna una opción de aviso guiando a /pj panel o /pj vincular.
     """
     activos = await obtener_personajes_activos(str(interaction.user.id))
+    if not activos:
+        return [
+            app_commands.Choice(
+                name="⚠️ Sin personajes activos (Usa /pj panel o /pj vincular)",
+                value="__sin_activos__"
+            )
+        ]
+
     curr_norm = normalizar_texto(current)
     filtrados = []
     for p in activos:
@@ -41,9 +50,65 @@ async def autocomplete_mis_personajes_activos(interaction: discord.Interaction, 
             filtrados.append(app_commands.Choice(name=f"🛡️ {nombre}"[:100], value=tag[:100]))
     return filtrados[:25]
 
+async def autocomplete_personajes_admin_rpg(interaction: discord.Interaction, current: str) -> list[app_commands.Choice[str]]:
+    """
+    Autocompletado para comandos de administración RPG (item_dar, item_quitar).
+    - Muestra prioritariamente personajes activos/vinculados con el nombre de su dueño: '🛡️ {nombre} (@{owner})'.
+    - Si el admin escribe texto de búsqueda, busca entre los vinculados y, si queda espacio (< 25),
+      permite encontrar personajes no vinculados o de reserva: '📦 {nombre} (Sin vincular)'.
+    """
+    vinculados = await obtener_personajes_vinculados_con_owner()
+    curr_norm = normalizar_texto(current)
+    filtrados = []
+    guild = interaction.guild
+
+    # 1. Filtrar vinculados primero
+    for p in vinculados:
+        tag, nombre, owner_id = p["tupper_tag"], p["nombre"], p.get("owner_id")
+        owner_label = ""
+        if guild and owner_id:
+            try:
+                member = guild.get_member(int(owner_id))
+                if member:
+                    owner_label = f"@{member.display_name}"
+                else:
+                    owner_label = f"ID: {owner_id}"
+            except Exception:
+                owner_label = f"ID: {owner_id}"
+        elif owner_id:
+            owner_label = f"ID: {owner_id}"
+
+        label_full = f"🛡️ {nombre} ({owner_label})" if owner_label else f"🛡️ {nombre}"
+
+        if not curr_norm or curr_norm in normalizar_texto(nombre) or curr_norm in normalizar_texto(tag) or (owner_id and curr_norm in str(owner_id)):
+            filtrados.append(app_commands.Choice(name=label_full[:100], value=tag[:100]))
+
+    # 2. Si el admin ha escrito un texto de búsqueda y aún hay cupo (< 25), buscar en todos los personajes
+    if curr_norm and len(filtrados) < 25:
+        tags_ya_incluidos = {p["tupper_tag"] for p in vinculados}
+        todos = await listar_todos_personajes()
+        for p in todos:
+            tag, nombre = p[0], p[1]
+            if tag in tags_ya_incluidos:
+                continue
+            if curr_norm in normalizar_texto(nombre) or curr_norm in normalizar_texto(tag):
+                filtrados.append(app_commands.Choice(name=f"📦 {nombre} (Sin vincular)"[:100], value=tag[:100]))
+                if len(filtrados) >= 25:
+                    break
+
+    return filtrados[:25]
+
 async def autocomplete_mis_personajes_reserva(interaction: discord.Interaction, current: str) -> list[app_commands.Choice[str]]:
     """Autocompletado que devuelve los personajes en reserva del usuario para activar."""
     reserva = await obtener_personajes_reserva(str(interaction.user.id))
+    if not reserva:
+        return [
+            app_commands.Choice(
+                name="⚠️ Sin personajes en reserva (Usa /pj importar)",
+                value="__sin_reserva__"
+            )
+        ]
+
     curr_norm = normalizar_texto(current)
     filtrados = []
     for p in reserva:
@@ -64,6 +129,7 @@ async def autocomplete_items(interaction: discord.Interaction, current: str) -> 
     return filtrados[:25]
 
 
+
 class InventoryCommands(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
@@ -79,16 +145,24 @@ class InventoryCommands(commands.Cog):
     async def ver(self, interaction: discord.Interaction, personaje: str = None):
         await interaction.response.defer()
 
+        if personaje == "__sin_activos__":
+            return await interaction.followup.send(
+                "📭 No tienes ningún personaje activo actualmente.\n"
+                "• Usa `/pj panel` o `/pj vincular` para activar un personaje de tu reserva.\n"
+                "• O escribe el nombre de cualquier personaje para ver su inventario (ej: `/inv ver personaje: Apolo`).",
+                ephemeral=True
+            )
+
         target_pj = None
         if not personaje:
             activos = await obtener_personajes_activos(str(interaction.user.id))
-            if len(activos) == 1:
-                target_pj = activos[0]["tupper_tag"]
-            elif len(activos) > 1:
+            if len(activos) >= 1:
                 target_pj = activos[0]["tupper_tag"]
             else:
                 return await interaction.followup.send(
-                    "📭 No tienes ningún personaje activo. Usa `/pj panel` o `/pj vincular` para activar uno.",
+                    "📭 No tienes ningún personaje activo actualmente.\n"
+                    "• Usa `/pj panel` o `/pj vincular` para activar uno de tu reserva.\n"
+                    "• O especifica el nombre en el comando: `/inv ver personaje: <nombre>`.",
                     ephemeral=True
                 )
         else:
@@ -137,6 +211,13 @@ class InventoryCommands(commands.Cog):
         item: str, 
         cantidad: int = 1
     ):
+        if de_personaje == "__sin_activos__":
+            return await interaction.response.send_message(
+                "📭 No tienes ningún personaje activo desde el cual transferir ítems.\n"
+                "Usa `/pj panel` o `/pj vincular` para activar un personaje de tu reserva personal primero.",
+                ephemeral=True
+            )
+
         if cantidad <= 0:
             return await interaction.response.send_message("❌ La cantidad debe ser mayor a 0.", ephemeral=True)
 
@@ -153,6 +234,12 @@ class InventoryCommands(commands.Cog):
 
         puede, motivo = puede_gestionar_personaje(interaction.user, p_origen)
         if not puede:
+            if motivo == "en_reserva_propia":
+                return await interaction.response.send_message(
+                    f"📦 **{p_origen[1]}** está en tu reserva personal pero no está activo.\n"
+                    f"Usa `/pj vincular {p_origen[1]}` o `/pj panel` para activarlo en tu cupo (hasta 3 personajes).",
+                    ephemeral=True
+                )
             return await interaction.response.send_message(
                 f"⛔ No tienes permiso para gestionar a **{p_origen[1]}**. Solo su dueño activo o un admin pueden mover sus ítems.",
                 ephemeral=True
@@ -230,6 +317,13 @@ class InventoryCommands(commands.Cog):
         item=autocomplete_items
     )
     async def usar(self, interaction: discord.Interaction, personaje: str, item: str, cantidad: int = 1):
+        if personaje == "__sin_activos__":
+            return await interaction.response.send_message(
+                "📭 No tienes ningún personaje activo para consumir ítems.\n"
+                "Usa `/pj panel` o `/pj vincular` para activar un personaje de tu reserva personal primero.",
+                ephemeral=True
+            )
+
         if cantidad <= 0:
             return await interaction.response.send_message("❌ La cantidad debe ser mayor a 0.", ephemeral=True)
 
@@ -239,6 +333,12 @@ class InventoryCommands(commands.Cog):
 
         puede, motivo = puede_gestionar_personaje(interaction.user, p_info)
         if not puede:
+            if motivo == "en_reserva_propia":
+                return await interaction.response.send_message(
+                    f"📦 **{p_info[1]}** está en tu reserva personal pero no está activo.\n"
+                    f"Usa `/pj vincular {p_info[1]}` o `/pj panel` para activarlo en tu cupo (hasta 3 personajes) y poder usar sus ítems.",
+                    ephemeral=True
+                )
             return await interaction.response.send_message(f"⛔ No eres el dueño activo de **{p_info[1]}**.", ephemeral=True)
 
         ok, msg, it_data = await consumir_item(p_info[0], item, cantidad)

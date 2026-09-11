@@ -17,7 +17,11 @@ from core.database import (
     establecer_limite_personajes,
     obtener_limite_personajes
 )
-from cogs.inventory_commands import autocomplete_personajes_todos, autocomplete_items
+from cogs.inventory_commands import (
+    autocomplete_personajes_todos, 
+    autocomplete_personajes_admin_rpg, 
+    autocomplete_items
+)
 from cogs.crafting_commands import autocomplete_recetas
 
 class AdminRPGCommands(commands.Cog):
@@ -96,7 +100,7 @@ class AdminRPGCommands(commands.Cog):
         item="Ítem a entregar",
         cantidad="Cantidad de unidades a añadir"
     )
-    @app_commands.autocomplete(personaje=autocomplete_personajes_todos, item=autocomplete_items)
+    @app_commands.autocomplete(personaje=autocomplete_personajes_admin_rpg, item=autocomplete_items)
     @requiere_admin()
     async def item_dar(self, interaction: discord.Interaction, personaje: str, item: str, cantidad: int = 1):
         if cantidad <= 0:
@@ -128,7 +132,7 @@ class AdminRPGCommands(commands.Cog):
         item="Ítem a retirar",
         cantidad="Cantidad de unidades a restar"
     )
-    @app_commands.autocomplete(personaje=autocomplete_personajes_todos, item=autocomplete_items)
+    @app_commands.autocomplete(personaje=autocomplete_personajes_admin_rpg, item=autocomplete_items)
     @requiere_admin()
     async def item_quitar(self, interaction: discord.Interaction, personaje: str, item: str, cantidad: int = 1):
         if cantidad <= 0:

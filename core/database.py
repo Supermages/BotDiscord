@@ -252,6 +252,19 @@ async def obtener_personajes_activos(user_id: str) -> list[dict]:
             rows = await cursor.fetchall()
             return [dict(r) for r in rows]
 
+async def obtener_personajes_vinculados_con_owner() -> list[dict]:
+    """Retorna todos los personajes activos/vinculados a algún usuario en el sistema."""
+    async with aiosqlite.connect(DB_FILE) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute(
+            '''SELECT tupper_tag, nombre, lado, avatar_url, color, color_texto, owner_id, creator_id 
+               FROM Personaje_Tabla 
+               WHERE owner_id IS NOT NULL AND owner_id != '' 
+               ORDER BY nombre ASC'''
+        ) as cursor:
+            rows = await cursor.fetchall()
+            return [dict(r) for r in rows]
+
 async def obtener_personajes_reserva(user_id: str) -> list[dict]:
     """Retorna los personajes en reserva del usuario (creator_id = user_id y sin activar)."""
     async with aiosqlite.connect(DB_FILE) as db:

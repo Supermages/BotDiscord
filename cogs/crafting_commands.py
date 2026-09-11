@@ -50,6 +50,13 @@ class CraftingCommands(commands.Cog):
     )
     @app_commands.autocomplete(personaje=autocomplete_mis_personajes_activos, receta=autocomplete_recetas)
     async def fabricar(self, interaction: discord.Interaction, personaje: str, receta: str, cantidad: int = 1):
+        if personaje == "__sin_activos__":
+            return await interaction.response.send_message(
+                "📭 No tienes ningún personaje activo para fabricar recetas.\n"
+                "Usa `/pj panel` o `/pj vincular` para activar un personaje de tu reserva personal primero.",
+                ephemeral=True
+            )
+
         if cantidad <= 0:
             return await interaction.response.send_message("❌ La cantidad a fabricar debe ser mayor a 0.", ephemeral=True)
 
@@ -63,6 +70,12 @@ class CraftingCommands(commands.Cog):
         # 2. Validar propiedad activa
         puede, motivo = puede_gestionar_personaje(interaction.user, p_info)
         if not puede:
+            if motivo == "en_reserva_propia":
+                return await interaction.followup.send(
+                    f"📦 **{p_info[1]}** está en tu reserva personal pero no está activo.\n"
+                    f"Usa `/pj vincular {p_info[1]}` o `/pj panel` para activarlo en tu cupo (hasta 3 personajes) antes de fabricar.",
+                    ephemeral=True
+                )
             return await interaction.followup.send(
                 f"⛔ No tienes permiso para usar los materiales de **{p_info[1]}** porque no eres su dueño activo.", 
                 ephemeral=True
