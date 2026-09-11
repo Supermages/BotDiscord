@@ -379,7 +379,12 @@ class InventoryCommands(commands.Cog):
                 )
             return await interaction.response.send_message(f"⛔ No eres el dueño activo de **{p_info[1]}**.", ephemeral=True)
 
-        ok, msg, it_data = await consumir_item(p_info[0], item, cantidad)
+        ok, msg, it_data, items_mostrados = await consumir_item(
+            tupper_tag=p_info[0],
+            item_id=item,
+            cantidad=cantidad,
+            user_id=str(interaction.user.id)
+        )
         if not ok:
             return await interaction.response.send_message(f"❌ {msg}", ephemeral=True)
 
@@ -388,6 +393,18 @@ class InventoryCommands(commands.Cog):
             description=msg,
             color=0x9B59B6
         )
+        if p_info[3]:
+            embed.set_author(name=p_info[1], icon_url=p_info[3])
+
+        # Si el script ejecutó display_item(), añadir tarjeta visual
+        for d_it in items_mostrados:
+            desc = f"*{d_it.get('descripcion') or 'Sin descripción'}*"
+            embed.add_field(
+                name=f"🎁 Obtenido: {d_it.get('emoji', '📦')} {d_it.get('nombre')}",
+                value=f"• Categoría: `{d_it.get('categoria', 'Otros')}`\n{desc}",
+                inline=False
+            )
+
         await interaction.response.send_message(embed=embed)
 
 

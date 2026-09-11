@@ -15,7 +15,8 @@ from core.database import (
     vincular_owner_personaje,
     listar_items_catalogo,
     establecer_limite_personajes,
-    obtener_limite_personajes
+    obtener_limite_personajes,
+    actualizar_script_item
 )
 from cogs.inventory_commands import (
     autocomplete_personajes_todos, 
@@ -23,6 +24,58 @@ from cogs.inventory_commands import (
     autocomplete_items
 )
 from cogs.crafting_commands import autocomplete_recetas
+from services.lua_service import lua_engine
+
+class ItemScriptModal(discord.ui.Modal):
+    def __init__(self, item_id: str, item_nombre: str, current_script: str = ""):
+        super().__init__(title=f"Script: {item_nombre[:35]}")
+        self.item_id = item_id
+        self.item_nombre = item_nombre
+        self.script_input = discord.ui.TextInput(
+            label="Código Lua de Uso",
+            style=discord.TextStyle.paragraph,
+            placeholder="-- Ingrese el código Lua aquí...\nreply('¡Has usado ' .. item .. '!')",
+            default=current_script or "",
+            required=False,
+            max_length=4000
+        )
+        self.add_item(self.script_input)
+
+    async def on_submit(self, interaction: discord.Interaction):
+        codigo = self.script_input.value.strip()
+        if not codigo:
+            # Eliminar script
+            await actualizar_script_item(self.item_id, "")
+            embed = discord.Embed(
+                title="📜 Script Eliminado",
+                description=f"Se ha eliminado el script personalizado del ítem **{self.item_nombre}** (`{self.item_id}`). Volverá a usar la lógica de consumo estándar.",
+                color=0xE67E22
+            )
+            return await interaction.response.send_message(embed=embed, ephemeral=True)
+
+        # Validar sintaxis Lua
+        valido, msg_validacion = lua_engine.validar_sintaxis(codigo)
+        if not valido:
+            embed = discord.Embed(
+                title="❌ Error de Sintaxis Lua",
+                description=(
+                    f"El script para **{self.item_nombre}** contiene errores de sintaxis y no se ha guardado:\n"
+                    f"```text\n{msg_validacion}\n```"
+                ),
+                color=0xE74C3C
+            )
+            return await interaction.response.send_message(embed=embed, ephemeral=True)
+
+        # Guardar en base de datos
+        await actualizar_script_item(self.item_id, codigo)
+        embed = discord.Embed(
+            title="✅ Script Lua Guardado",
+            description=f"El script de uso para el ítem **{self.item_nombre}** (`{self.item_id}`) ha sido validado y guardado correctamente.",
+            color=0x2ECC71
+        )
+        preview = codigo[:800] + ("..." if len(codigo) > 800 else "")
+        embed.add_field(name="Vista Previa", value=f"```lua\n{preview}\n```", inline=False)
+        await interaction.response.send_message(embed=embed, ephemeral=True)
 
 class AdminRPGCommands(commands.Cog):
     def __init__(self, bot: commands.Bot):
@@ -291,6 +344,103 @@ class AdminRPGCommands(commands.Cog):
             color=0x2ECC71
         )
         await interaction.response.send_message(embed=embed)
+
+    # ---------------------------------------------------------
+    # /admin_rpg item_script
+    # ---------------------------------------------------------
+    @admin_rpg_group.command(name="item_script", description="Abre un editor para programar el script Lua de uso de un ítem.")
+    @app_commands.describe(item="Ítem al que editar o asignar el script Lua")
+    @app_commands.autocomplete(item=autocomplete_items)
+    @requiere_admin()
+    async def item_script(self, interaction: discord.Interaction, item: str):
+        it_data = await obtener_item(item)
+        if not it_data:
+            return await interaction.response.send_message(f"❌ Ítem '{item}' no encontrado en el catálogo.", ephemeral=True)
+
+        current_script = it_data.get("script_uso") or ""
+        modal = ItemScriptModal(it_data["item_id"], it_data["nombre"], current_script)
+        await interaction.response.send_modal(modal)
+
+    # ---------------------------------------------------------
+    # /admin_rpg script_probar
+    # ---------------------------------------------------------
+    @admin_rpg_group.command(name="script_probar", description="Prueba la ejecución de un script Lua de un ítem con un personaje.")
+    @app_commands.describe(
+        item="Ítem con script a probar",
+        personaje="Personaje sobre el que ejecutar la prueba",
+        cantidad="Cantidad de ítems a simular en el uso"
+    )
+    @app_commands.autocomplete(item=autocomplete_items, personaje=autocomplete_personajes_admin_rpg)
+    @requiere_admin()
+    async def script_probar(self, interaction: discord.Interaction, item: str, personaje: str, cantidad: int = 1):
+        if cantidad <= 0:
+            return await interaction.response.send_message("❌ La cantidad debe ser mayor a 0.", ephemeral=True)
+
+        it_data = await obtener_item(item)
+        if not it_data:
+            return await interaction.response.send_message(f"❌ Ítem '{item}' no encontrado.", ephemeral=True)
+
+        script = (it_data.get("script_uso") or "").strip()
+        if not script:
+            return await interaction.response.send_message(f"⚠️ El ítem **{it_data['nombre']}** (`{it_data['item_id']}`) no tiene un script Lua asignado.", ephemeral=True)
+
+        p_info = await buscar_personaje_por_nombre_db(personaje)
+        if not p_info:
+            return await interaction.response.send_message(f"❌ Personaje '{personaje}' no encontrado.", ephemeral=True)
+
+        await interaction.response.defer(ephemeral=True)
+
+        ok, msg_resultado, items_mostrados = lua_engine.ejecutar_script(
+            script=script,
+            char_input=p_info[1],
+            item_input=it_data["item_id"],
+            cantidad=cantidad,
+            user_id=str(interaction.user.id)
+        )
+
+        embed = discord.Embed(
+            title=f"🧪 Prueba de Script: {it_data.get('emoji', '📦')} {it_data['nombre']}",
+            description=f"**Personaje:** {p_info[1]} | **Cantidad simulada:** {cantidad}\n**Resultado:** {'✅ Éxito' if ok else '❌ Fallo / Abortado'}",
+            color=0x2ECC71 if ok else 0xE74C3C
+        )
+        embed.add_field(name="Salida (reply)", value=msg_resultado[:1024] or "*Sin salida*", inline=False)
+        if items_mostrados:
+            embed.add_field(name="Ítems Mostrados (display_item)", value=", ".join([f"`{i}`" for i in items_mostrados]), inline=False)
+
+        await interaction.followup.send(embed=embed, ephemeral=True)
+
+    # ---------------------------------------------------------
+    # /admin_rpg item_info
+    # ---------------------------------------------------------
+    @admin_rpg_group.command(name="item_info", description="Muestra la información técnica detallada y el script Lua de un ítem.")
+    @app_commands.describe(item="Ítem a inspeccionar")
+    @app_commands.autocomplete(item=autocomplete_items)
+    @requiere_admin()
+    async def item_info(self, interaction: discord.Interaction, item: str):
+        it_data = await obtener_item(item)
+        if not it_data:
+            return await interaction.response.send_message(f"❌ Ítem '{item}' no encontrado.", ephemeral=True)
+
+        script = (it_data.get("script_uso") or "").strip()
+        script_status = f"✅ Configurado ({len(script)} caracteres)" if script else "❌ Ninguno (lógica por defecto)"
+
+        embed = discord.Embed(
+            title=f"{it_data.get('emoji', '📦')} {it_data.get('nombre', item)}",
+            description=it_data.get("descripcion") or "*Sin descripción.*",
+            color=0x3498DB
+        )
+        embed.add_field(name="ID Catálogo", value=f"`{it_data['item_id']}`", inline=True)
+        embed.add_field(name="Categoría", value=f"`{it_data.get('categoria', 'Material')}`", inline=True)
+        embed.add_field(name="Es Usable", value="✅ Sí" if it_data.get("es_usable") else "❌ No", inline=True)
+        if it_data.get("mensaje_uso"):
+            embed.add_field(name="Mensaje de Uso", value=f"> {it_data['mensaje_uso']}", inline=False)
+        embed.add_field(name="Script Lua", value=script_status, inline=False)
+
+        if script:
+            preview = script if len(script) <= 950 else script[:950] + "\n-- [Truncado...]"
+            embed.add_field(name="Código del Script", value=f"```lua\n{preview}\n```", inline=False)
+
+        await interaction.response.send_message(embed=embed, ephemeral=True)
 
 
 async def setup(bot: commands.Bot):
