@@ -25,6 +25,7 @@ data/*.db
 
 # --- Archivos Generados por el Bot ---
 # Ignoramos todo lo que esté dentro de exportaciones (imágenes y jsons de chat)
+exportaciones/
 data/exportaciones/*.png
 data/exportaciones/*.json
 data/exportaciones/*.jpg

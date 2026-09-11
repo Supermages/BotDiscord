@@ -3,43 +3,40 @@
     src: url('fuentes/印品鸿蒙体.ttf') format('truetype');
 }
 
-/* El body debe ser transparente y ajustarse a lo que haya dentro */
+/* El body debe ser transparente y sin márgenes innecesarios */
 html, body {
     margin: 0;
     padding: 0;
     background-color: transparent;
     width: auto;
     height: auto;
-    overflow: hidden; /* Sin barras de scroll */
+    overflow: hidden;
+    /* Fuente moderna estándar con fallback a HongMengTi para caracteres CJK */
+    font-family: "gg sans", "Noto Sans", "Segoe UI", system-ui, -apple-system, BlinkMacSystemFont, "Helvetica Neue", Roboto, Arial, "HongMengTi", sans-serif;
+    -webkit-font-smoothing: antialiased;
 }
 
-/* El contenedor principal */
+.wrapper {
+    display: inline-block;
+    padding: 15px;
+    background-color: transparent;
+}
+
+/* Contenedor principal con ancho óptimo para evitar imágenes excesivamente largas */
 .chat-container {
-    /* ANCHO FIJO: Esto asegura que siempre se vea igual de ancho */
-    width: 480px; 
-    
-    /* ALTO AUTOMÁTICO: Crece con los mensajes */
-    height: auto; 
-    min-height: 100px;
-    
-    background: linear-gradient(to bottom, #111, #1a1a1a);
-    border: 1px solid #000;
-    border-radius: 20px;
-    
+    width: 660px;
+    height: auto;
+    min-height: 80px;
+    background: linear-gradient(180deg, #121214 0%, #1a1a1e 100%);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 18px;
     display: flex;
     flex-direction: column;
-    gap: 15px;
-    
-    /* Margen interno para que el texto no toque los bordes */
-    padding: 25px;
-    
-    /* Margen externo (vital para que la sombra no se corte en la foto) */
-    margin: 20px; 
-    
-    box-shadow: 0 10px 30px rgba(0,0,0,0.8);
+    gap: 14px;
+    padding: 20px 24px;
     box-sizing: border-box;
-    font-family: 'HongMengTi', Arial, sans-serif;
-    color: white;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.7);
+    color: #f2f3f5;
 }
 
 /* Título */
@@ -47,49 +44,131 @@ html, body {
     display: flex;
     align-items: center;
     gap: 10px;
-    padding-bottom: 15px;
-    border-bottom: 2px solid #333;
-    font-size: 20px;
-    font-weight: bold;
-    color: #eee;
+    padding-bottom: 12px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+    font-size: 18px;
+    font-weight: 700;
+    color: #e0e2e6;
 }
 
-.title-div svg { width: 24px; height: 24px; fill: #7289da; }
+.title-div svg {
+    width: 22px;
+    height: 22px;
+    fill: #5865F2;
+    flex-shrink: 0;
+}
 
 /* Mensajes */
-.chat-box { display: flex; align-items: flex-start; gap: 12px; margin-bottom: 5px; }
-.chat-box.blue { flex-direction: row-reverse; }
+.chat-box {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    margin-bottom: 4px;
+}
+
+.chat-box.blue {
+    flex-direction: row-reverse;
+}
 
 /* Avatares */
+.img-container {
+    flex-shrink: 0;
+}
+
 .img-container img {
-    width: 45px; height: 45px;
+    width: 42px;
+    height: 42px;
     border-radius: 50%;
-    border: 2px solid #222;
+    border: 1.5px solid rgba(255, 255, 255, 0.15);
     object-fit: cover;
+    box-shadow: 0 2px 5px rgba(0, 0, 0, 0.4);
 }
 
 /* Burbujas */
 .chat-bubble {
-    padding: 12px 16px;
-    border-radius: 18px;
-    font-size: 15px;
-    line-height: 1.4;
-    max-width: 320px;
-    word-wrap: break-word;
+    padding: 10px 16px;
+    border-radius: 16px;
+    font-size: 14.5px;
+    line-height: 1.45;
+    max-width: 520px;
+    word-break: break-word;
+    box-sizing: border-box;
+    position: relative;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.25);
 }
-.message-text { margin: 0; }
 
-/* Adjuntos */
-.attachments-container { display: flex; flex-direction: column; gap: 8px; margin-top: 8px; }
-.chat-attachment-img { max-width: 100%; border-radius: 10px; }
-.sticker-img { width: 130px; height: 130px; object-fit: contain; }
+/* Burbujas que solo contienen multimedia (imágenes/GIFs/stickers) sin texto */
+.chat-bubble.media-only {
+    background-color: transparent !important;
+    padding: 0 !important;
+    box-shadow: none !important;
+}
 
-/* Archivos */
+.chat-bubble.media-only::after {
+    display: none !important;
+}
+
+.message-text {
+    margin: 0;
+    white-space: pre-wrap;
+    word-break: break-word;
+}
+
+/* Adjuntos e imágenes */
+.attachments-container {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin-top: 8px;
+}
+
+.chat-attachment-img {
+    max-width: 100%;
+    max-height: 380px;
+    border-radius: 10px;
+    object-fit: contain;
+    box-shadow: 0 2px 6px rgba(0,0,0,0.3);
+}
+
+.sticker-img {
+    width: 120px;
+    height: 120px;
+    object-fit: contain;
+}
+
+/* Tarjetas de archivos adjuntos */
 .file-card {
-    display: flex; align-items: center; gap: 10px;
-    background: rgba(255,255,255,0.1);
-    padding: 10px; border-radius: 8px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    background: rgba(0, 0, 0, 0.25);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    padding: 10px 14px;
+    border-radius: 10px;
 }
-.file-icon { font-size: 24px; }
-.file-name { font-weight: bold; font-size: 14px; max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.file-link { color: #00b0f4; text-decoration: none; font-size: 12px; display: block; }
+
+.file-icon {
+    font-size: 22px;
+}
+
+.file-info {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.file-name {
+    font-weight: 600;
+    font-size: 13.5px;
+    max-width: 260px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.file-link {
+    color: #00b0f4;
+    text-decoration: none;
+    font-size: 12px;
+    font-weight: 500;
+}

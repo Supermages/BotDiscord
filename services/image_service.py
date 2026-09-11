@@ -3,14 +3,51 @@ import logging
 from core.config import Config
 from renderer.captura import generar_captura
 
+def dividir_en_lotes_inteligentes(mensajes: list, max_por_lote: int, peso_maximo: float = 14.0) -> list:
+    """
+    Divide los mensajes de forma adaptativa. Los mensajes largos o con imágenes
+    ocupan más peso visual, evitando que una imagen resultante sea excesivamente alta.
+    """
+    chunks = []
+    chunk_actual = []
+    peso_actual = 0.0
+
+    for msg in mensajes:
+        texto = msg.get("Mensaje", "")
+        adjuntos = msg.get("Adjuntos", [])
+
+        # Peso base para un mensaje corto
+        peso = 1.0
+
+        # Mensajes extensos (rol, párrafos) añaden peso por altura
+        if len(texto) > 120:
+            peso += min(4.0, len(texto) / 100.0)
+
+        # Imágenes, stickers o GIFs añaden peso vertical sustancial
+        if adjuntos:
+            peso += len(adjuntos) * 2.5
+
+        # Si superamos el peso máximo o el límite por lote, cerramos lote (siempre que ya tengamos al menos 2 mensajes)
+        if (peso_actual + peso > peso_maximo or len(chunk_actual) >= max_por_lote) and len(chunk_actual) >= 2:
+            chunks.append(chunk_actual)
+            chunk_actual = [msg]
+            peso_actual = peso
+        else:
+            chunk_actual.append(msg)
+            peso_actual += peso
+
+    if chunk_actual:
+        chunks.append(chunk_actual)
+
+    return chunks
+
 async def generar_imagenes_por_lotes(channel_id, chat_json, titulo_base):
     """
-    Divide los mensajes del chat en lotes de tamaño Config.MENSAJES_POR_IMAGEN
-    y genera una captura para cada segmento.
+    Genera capturas segmentadas utilizando división inteligente por peso visual.
     """
     mensajes = chat_json["Chat"]["mensajes"]
-    chunk_size = Config.MENSAJES_POR_IMAGEN
-    chunks = [mensajes[i:i + chunk_size] for i in range(0, len(mensajes), chunk_size)]
+    max_chunk = Config.MENSAJES_POR_IMAGEN
+    chunks = dividir_en_lotes_inteligentes(mensajes, max_por_lote=max_chunk)
     
     rutas_archivos = []
     
@@ -38,9 +75,9 @@ async def generar_imagen_segmentada(chat_json, canal_id):
     """
     Genera la imagen de la última parte actualizada para actualizaciones rápidas.
     """
-    chunk_size = Config.MENSAJES_POR_IMAGEN
+    max_chunk = Config.MENSAJES_POR_IMAGEN
     mensajes = chat_json["Chat"]["mensajes"]
-    partes = [mensajes[i:i + chunk_size] for i in range(0, len(mensajes), chunk_size)]
+    partes = dividir_en_lotes_inteligentes(mensajes, max_por_lote=max_chunk)
 
     if not partes:
         raise ValueError("No hay mensajes para generar imagen")
