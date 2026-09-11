@@ -77,18 +77,6 @@ async def inicializar_base():
         except Exception:
             pass
 
-        # Reset solicitado: pasar los personajes previamente vinculados a la reserva (creator_id) y dejar owner_id = NULL
-        try:
-            await db.execute('''
-                UPDATE Personaje_Tabla 
-                SET creator_id = COALESCE(creator_id, owner_id),
-                    owner_id = NULL 
-                WHERE owner_id IS NOT NULL;
-            ''')
-            await db.commit()
-        except Exception:
-            pass
-
         # Índices para acelerar búsquedas
         await db.execute('''
             CREATE INDEX IF NOT EXISTS idx_personaje_nombre_lower 
