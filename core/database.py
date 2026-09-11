@@ -193,6 +193,95 @@ async def listar_todos_personajes() -> list[tuple]:
         async with db.execute('SELECT tupper_tag, nombre, owner_id FROM Personaje_Tabla ORDER BY nombre ASC') as cursor:
             return await cursor.fetchall()
 
+async def auto_vincular_o_crear_personaje(tupper_name: str, avatar_url: str, user_id: str) -> tuple[bool, str]:
+    """
+    Intenta auto-vincular o registrar un personaje detectado pasivamente por webhook.
+    - Si no existe: lo crea con owner_id = user_id.
+    - Si existe sin owner_id: le asigna owner_id = user_id.
+    - Si existe y ya pertenece a user_id: actualiza avatar si cambió.
+    - Si pertenece a otro usuario: no lo sobreescribe (protección).
+    Retorna (éxito, estado).
+    """
+    tupper_tag = tupper_name.strip()
+    owner_str = str(user_id)
+    async with aiosqlite.connect(DB_FILE) as db:
+        async with db.execute('SELECT owner_id, avatar_url FROM Personaje_Tabla WHERE tupper_tag = ?', (tupper_tag,)) as cursor:
+            row = await cursor.fetchone()
+            
+        if not row:
+            await db.execute('''
+                INSERT INTO Personaje_Tabla (tupper_tag, nombre, lado, avatar_url, color, color_texto, owner_id)
+                VALUES (?, ?, 'I', ?, '#FFFFFF', '#000000', ?)
+            ''', (tupper_tag, tupper_tag, avatar_url or "", owner_str))
+            await db.commit()
+            _cache_personajes.pop(tupper_tag, None)
+            return True, "creado"
+
+        current_owner, current_avatar = row[0], row[1]
+        if current_owner is None or current_owner == "":
+            await db.execute('UPDATE Personaje_Tabla SET owner_id = ?, avatar_url = COALESCE(NULLIF(?, ""), avatar_url) WHERE tupper_tag = ?', (owner_str, avatar_url, tupper_tag))
+            await db.commit()
+            _cache_personajes.pop(tupper_tag, None)
+            return True, "vinculado"
+        elif str(current_owner) == owner_str:
+            if avatar_url and avatar_url != current_avatar:
+                await db.execute('UPDATE Personaje_Tabla SET avatar_url = ? WHERE tupper_tag = ?', (avatar_url, tupper_tag))
+                await db.commit()
+                _cache_personajes.pop(tupper_tag, None)
+                return True, "actualizado"
+            return True, "sin_cambios"
+        else:
+            return False, "pertenece_a_otro"
+
+async def importar_tuppers_batch(owner_id: str, tuppers: list[dict]) -> dict:
+    """
+    Importa masivamente los tuppers exportados desde Tupperbox (tul!export).
+    Retorna un diccionario con estadísticas:
+    {'creados': [...], 'actualizados': [...], 'conflictos': [...]}
+    """
+    owner_str = str(owner_id)
+    resultado = {
+        "creados": [],
+        "actualizados": [],
+        "conflictos": []
+    }
+
+    async with aiosqlite.connect(DB_FILE) as db:
+        for t in tuppers:
+            nombre = str(t.get("name", "")).strip()
+            if not nombre:
+                continue
+
+            avatar_url = str(t.get("avatar_url") or "").strip()
+            
+            async with db.execute('SELECT owner_id, avatar_url FROM Personaje_Tabla WHERE tupper_tag = ?', (nombre,)) as cursor:
+                row = await cursor.fetchone()
+
+            if not row:
+                await db.execute('''
+                    INSERT INTO Personaje_Tabla (tupper_tag, nombre, lado, avatar_url, color, color_texto, owner_id)
+                    VALUES (?, ?, 'I', ?, '#FFFFFF', '#000000', ?)
+                ''', (nombre, nombre, avatar_url, owner_str))
+                resultado["creados"].append(nombre)
+                _cache_personajes.pop(nombre, None)
+            else:
+                curr_owner, _ = row[0], row[1]
+                if curr_owner is None or curr_owner == "" or str(curr_owner) == owner_str:
+                    await db.execute('''
+                        UPDATE Personaje_Tabla 
+                        SET owner_id = ?, 
+                            avatar_url = CASE WHEN ? != '' THEN ? ELSE avatar_url END
+                        WHERE tupper_tag = ?
+                    ''', (owner_str, avatar_url, avatar_url, nombre))
+                    resultado["actualizados"].append(nombre)
+                    _cache_personajes.pop(nombre, None)
+                else:
+                    resultado["conflictos"].append(nombre)
+
+        await db.commit()
+
+    return resultado
+
 # ==========================================
 # 2. CATÁLOGO DE ÍTEMS
 # ==========================================

@@ -204,6 +204,8 @@ Al iniciar, el bot creará automáticamente las tablas SQLite en `data/eridubot.
 | `/craftear` | Público | `personaje` *(str)*, `receta` *(str)*, `cantidad` *(int)* | Fabrica objetos consumiendo materiales de la bolsa del personaje. |
 | `/recetas` | Público | *Ninguno* | Explora el catálogo de fórmulas de crafteo e ingredientes necesarios. |
 | `/usar_item` | Público | `personaje` *(str)*, `item` *(str)*, `cantidad` *(int)* | Consume un ítem usable del inventario y ejecuta su mensaje/efecto. |
+| `/importar_tuppers`| Público | `archivo` *(Attachment .json)* | Importa masivamente los personajes de Tupperbox exportados con `tul!export`. |
+| `/guia_personajes` | Público | *Ninguno* | Muestra la guía interactiva paso a paso para sincronizar personajes de Tupperbox. |
 | `/vincular_personaje`| Público | `personaje` *(str)* | Reclama la propiedad de un personaje no registrado para proteger sus ítems. |
 | `/mis_personajes` | Público | *Ninguno* | Lista todos los personajes vinculados a tu cuenta de Discord. |
 
