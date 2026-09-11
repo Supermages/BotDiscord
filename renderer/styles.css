@@ -11,8 +11,8 @@ html, body {
     width: auto;
     height: auto;
     overflow: hidden;
-    /* Fuente moderna estándar con fallback a HongMengTi para caracteres CJK */
-    font-family: "gg sans", "Noto Sans", "Segoe UI", system-ui, -apple-system, BlinkMacSystemFont, "Helvetica Neue", Roboto, Arial, "HongMengTi", sans-serif;
+    /* Fuente HongMengTi nativa del proyecto como fuente principal */
+    font-family: 'HongMengTi', 'Segoe UI', Arial, sans-serif;
     -webkit-font-smoothing: antialiased;
 }
 
