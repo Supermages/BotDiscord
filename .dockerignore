@@ -1,0 +1,15 @@
+.env
+.env.*
+!.env.example
+__pycache__/
+*.py[cod]
+*$py.class
+venv/
+env/
+.venv/
+.git/
+.gitignore
+data/eridubot.sqlite
+data/exportaciones/*
+test-results/
+playwright-report/
