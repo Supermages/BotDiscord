@@ -66,14 +66,19 @@ BotDiscord/
 │   ├── tupper_service.py   # Detección y almacenamiento de Webhooks de Tupperbox
 │   ├── chat_sync_service.py # Escaneo de historial, filtrado y parseo multimedia
 │   ├── image_service.py    # Segmentación y generación de imágenes por lotes
-│   └── monitor_service.py  # Gestor de tareas asyncio y ciclo en segundo plano (MonitorManager)
+│   ├── monitor_service.py  # Gestor de tareas asyncio y ciclo en segundo plano (MonitorManager)
+│   ├── inventory_service.py # Lógica de permisos de personaje, stock y consumo de ítems
+│   └── crafting_service.py # Lógica de verificación de materiales y crafteo atómico
 │
 ├── cogs/
 │   ├── __init__.py
 │   ├── chat_commands.py    # Comandos /generarchat y /forzaractualizacion
 │   ├── monitor_commands.py # Comandos /listarmonitores y /detenermonitor
 │   ├── character_commands.py # Comando /editarpersonaje
-│   └── admin_commands.py   # Comandos /configuracion y /spam_ping
+│   ├── admin_commands.py   # Comandos /configuracion y /spam_ping
+│   ├── inventory_commands.py # Comandos públicos /inventario, /transferir, /usar_item, /vincular_personaje
+│   ├── crafting_commands.py  # Comandos públicos /recetas y /craftear
+│   └── admin_rpg_commands.py # Comandos Bot Admin /item_crear, /item_dar, /item_quitar, /receta_crear, etc.
 │
 ├── renderer/
 │   ├── __init__.py
@@ -81,11 +86,12 @@ BotDiscord/
 │   ├── index.html          # Plantilla HTML base del chat
 │   ├── mensajes.js         # Lógica JavaScript para inyectar burbujas y adjuntos
 │   ├── styles.css          # Estilos CSS de las burbujas, avatares y contenedor
-│   └── fuentes/            # Fuentes tipográficas (印品鸿蒙体.ttf)
+│   └── fuentes/            # Fuentes tipográficas (印品鸿蒙体.ttf corregida con kerning)
 │
 ├── ui/
 │   ├── __init__.py
-│   └── views.py            # Componentes interactivos de Discord (Views, Buttons, Modals)
+│   ├── views.py            # Componentes interactivos de personajes (LadoView, EditPersonajeView)
+│   └── inventory_views.py  # Vistas estilo MythOS (InventoryView, TransferConfirmView, RecipesView)
 │
 ├── data/
 │   ├── eridubot.sqlite     # Base de datos SQLite local
@@ -179,17 +185,37 @@ Al iniciar, el bot creará automáticamente las tablas SQLite en `data/eridubot.
 
 ## ⌨️ Comandos Slash
 
-Todos los comandos administrativos requieren que el usuario tenga el rol configurado en `ROL_ADMIN`.
-
+### 1. Comandos de Renderizado y Utilidad
 | Comando | Permisos | Parámetros | Descripción |
 | :--- | :--- | :--- | :--- |
-| `/generarchat` | Admin | `cantidad` *(int, opc)*: Cantidad total de mensajes.<br>`title` *(str, opc)*: Título mostrado en la cabecera.<br>`duracion` *(int, opc)*: Minutos de monitorización activa. | Genera la conversación en una o varias imágenes segmentadas e inicia el monitor en tiempo real. |
-| `/forzaractualizacion` | Admin | *Ninguno* | Comprueba y fuerza la actualización manual de la imagen en el mensaje generado previamente. |
-| `/listarmonitores` | Admin | *Ninguno* | Lista todos los canales que tienen un monitor de auto-actualización activo y el tiempo restante. |
+| `/generarchat` | Admin | `cantidad` *(int, opc)*, `title` *(str, opc)*, `duracion` *(int, opc)* | Genera la conversación en imágenes segmentadas e inicia el monitor en tiempo real. |
+| `/forzaractualizacion` | Admin | *Ninguno* | Fuerza la actualización manual inmediata del chat generado previamente. |
+| `/listarmonitores` | Admin | *Ninguno* | Lista todos los canales que tienen un monitor de auto-actualización activo. |
 | `/detenermonitor` | Admin | *Ninguno* | Detiene y cancela inmediatamente el monitor activo en el canal actual. |
-| `/editarpersonaje` | Admin | `nombre` *(str, req)*: Nombre del personaje en la base de datos. | Abre un menú interactivo con vista previa para personalizar el lado (izq/der), color de fondo y color de texto. |
-| `/configuracion` | Admin | `modo` *(choice, req)*:<br>• `TUPPER`: Solo mensajes de Tupperbox.<br>• `TODO`: Todos los mensajes del chat. | Define el modo de captura para el servidor actual. |
-| `/spam_ping` | Público | `usuario` *(Member, req)*: Usuario a mencionar.<br>`cantidad` *(int, req)*: Número de pings (máx. 30,000). | Envía menciones continuas al usuario con pausas de 1.5s para no saturar los límites de la API de Discord. |
+| `/editarpersonaje` | Admin | `nombre` *(str, req)* | Menú interactivo para personalizar lado (izq/der), color de fondo y de texto. |
+| `/configuracion` | Admin | `modo` (`TUPPER` / `TODO`) | Define el modo de captura para el servidor actual. |
+| `/spam_ping` | Público | `usuario` *(Member, req)*, `cantidad` *(int, req)* | Envía menciones continuas espaciadas por 1.5s (máx. 30,000). |
+
+### 2. Comandos Públicos de Inventario y Crafteo (Para toda la comunidad)
+| Comando | Permisos | Parámetros | Descripción |
+| :--- | :--- | :--- | :--- |
+| `/inventario` | Público | `personaje` *(str, opc)* | Muestra el inventario interactivo estilo MythOS con botones ◀, ▶ y Close. |
+| `/transferir` | Público | `de_personaje` *(str)*, `a_personaje` *(str)*, `item` *(str)*, `cantidad` *(int)* | Transfiere objetos entre personajes (requiere ser dueño del personaje origen). |
+| `/craftear` | Público | `personaje` *(str)*, `receta` *(str)*, `cantidad` *(int)* | Fabrica objetos consumiendo materiales de la bolsa del personaje. |
+| `/recetas` | Público | *Ninguno* | Explora el catálogo de fórmulas de crafteo e ingredientes necesarios. |
+| `/usar_item` | Público | `personaje` *(str)*, `item` *(str)*, `cantidad` *(int)* | Consume un ítem usable del inventario y ejecuta su mensaje/efecto. |
+| `/vincular_personaje`| Público | `personaje` *(str)* | Reclama la propiedad de un personaje no registrado para proteger sus ítems. |
+| `/mis_personajes` | Público | *Ninguno* | Lista todos los personajes vinculados a tu cuenta de Discord. |
+
+### 3. Comandos Administrativos RPG (Exclusivos para `Bot Admin`)
+| Comando | Permisos | Parámetros | Descripción |
+| :--- | :--- | :--- | :--- |
+| `/item_crear` | Admin | `id`, `nombre`, `emoji`, `categoria`, `descripcion`, `es_usable`, `mensaje_uso` | Registra o actualiza un ítem en el catálogo maestro del servidor. |
+| `/item_dar` | Admin | `personaje`, `item`, `cantidad` | Añade stock de un objeto al inventario de un personaje. |
+| `/item_quitar` | Admin | `personaje`, `item`, `cantidad` | Retira unidades de un objeto de la bolsa de un personaje. |
+| `/receta_crear` | Admin | `id`, `nombre`, `resultado_item`, `cantidad`, `ingredientes_texto`, `descripcion` | Crea una receta (ingredientes en formato `id:cant,id2:cant`). |
+| `/receta_borrar` | Admin | `receta` *(str)* | Elimina una fórmula de crafteo del servidor. |
+| `/vincular_admin` | Admin | `personaje`, `usuario` *(Member)* | Reasigna o cambia forzosamente el dueño de un personaje. |
 
 ---
 
@@ -205,7 +231,7 @@ flowchart TD
     E --> F
     F --> G["Parsear adjuntos, stickers, emojis y limpiar markdown"]
     G --> H["Guardar datos en data/exportaciones/chat_CANALID.json"]
-    H --> I["Dividir mensajes en Chunks (MENSAJES_POR_IMAGEN)"]
+    H --> I["Dividir mensajes adaptativamente por peso visual"]
     I --> J["Playwright carga renderer/index.html y ejecuta renderer/mensajes.js"]
     J --> K["Captura de pantalla recortada del contenedor .chat-container"]
     K --> L["Envío de archivos PNG a Discord"]
@@ -219,23 +245,40 @@ flowchart TD
 La base de datos se almacena en `data/eridubot.sqlite` con las siguientes tablas:
 
 ### 1. `Personaje_Tabla`
-Almacena la configuración visual de cada personaje o usuario:
+Configuración visual y propiedad de cada personaje:
 - `tupper_tag` (`TEXT PRIMARY KEY`): Identificador único o etiqueta sanitizada.
 - `nombre` (`TEXT NOT NULL`): Nombre para mostrar del personaje.
 - `lado` (`TEXT NOT NULL`): `"I"` para Izquierda o `"D"` para Derecha.
 - `avatar_url` (`TEXT`): URL del avatar del personaje.
 - `color` (`TEXT DEFAULT '#FFFFFF'`): Color de fondo de la burbuja (HEX).
 - `color_texto` (`TEXT DEFAULT '#000000'`): Color de la fuente del mensaje (HEX).
+- `owner_id` (`TEXT DEFAULT NULL`): ID de Discord del usuario propietario.
 
-### 2. `Tupperbox_Webhooks`
-Caché de IDs de webhook asociados a Tupperbox por servidor:
-- `guild_id` (`TEXT PRIMARY KEY`): ID del servidor de Discord.
-- `webhook_id` (`TEXT NOT NULL`): ID del webhook detectado.
+### 2. `Items_Catalogo`
+Catálogo maestro de objetos del servidor:
+- `item_id` (`TEXT PRIMARY KEY`): Identificador único (slug ej. `pocion_leve`).
+- `nombre` (`TEXT NOT NULL`): Nombre mostrado del ítem.
+- `emoji` (`TEXT DEFAULT '📦'`): Emoji identificativo.
+- `categoria` (`TEXT DEFAULT 'Material'`): Consumible, Material, Arma, Ticket, Especial.
+- `descripcion` (`TEXT DEFAULT ''`): Descripción del ítem.
+- `es_usable` (`INTEGER DEFAULT 0`): `1` si puede consumirse con `/usar_item`.
+- `mensaje_uso` (`TEXT DEFAULT ''`): Mensaje al consumirlo.
 
-### 3. `Guild_Config`
-Configuraciones específicas de cada servidor:
-- `guild_id` (`TEXT PRIMARY KEY`): ID del servidor de Discord.
-- `modo_captura` (`TEXT DEFAULT 'TUPPER'`): Modo de captura (`'TUPPER'` o `'TODO'`).
+### 3. `Inventarios`
+Existencias de objetos por cada personaje:
+- `id` (`INTEGER PRIMARY KEY AUTOINCREMENT`)
+- `personaje_id` (`TEXT NOT NULL`): Vinculado a `Personaje_Tabla(tupper_tag)`.
+- `item_id` (`TEXT NOT NULL`): Vinculado a `Items_Catalogo(item_id)`.
+- `cantidad` (`INTEGER NOT NULL DEFAULT 1`).
+- Restricción: `UNIQUE(personaje_id, item_id)`.
+
+### 4. `Recetas_Crafteo` y `Recetas_Ingredientes`
+Fórmulas de fabricación:
+- `Recetas_Crafteo`: `receta_id`, `nombre`, `resultado_item_id`, `resultado_cantidad`, `descripcion`.
+- `Recetas_Ingredientes`: `id`, `receta_id`, `item_id`, `cantidad`.
+
+### 5. `Tupperbox_Webhooks` y `Guild_Config`
+Caché de webhooks detectados y configuración de servidores (`TUPPER` vs `TODO`).
 
 ---
 

@@ -17,7 +17,10 @@ EXTENSIONES = [
     "cogs.chat_commands",
     "cogs.monitor_commands",
     "cogs.character_commands",
-    "cogs.admin_commands"
+    "cogs.admin_commands",
+    "cogs.inventory_commands",
+    "cogs.crafting_commands",
+    "cogs.admin_rpg_commands"
 ]
 
 class EriduBot(commands.Bot):
