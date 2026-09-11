@@ -26,6 +26,21 @@ def normalizar_texto(texto: str) -> str:
     alfanumerico = re.sub(r'[^a-z0-9\s]', '', lower)
     return " ".join(alfanumerico.split())
 
+def limpiar_termino_busqueda(texto: str) -> str:
+    """
+    Limpia prefijos de autocompletado (como emojis 🛡️, 📦, ⭐) y sufijos
+    de información como (@dueño), (ID: ...), (Sin vincular), (Activo), etc.
+    Esto permite que si Discord envía la etiqueta visible del Choice en vez del value,
+    la búsqueda reconozca el nombre real del personaje.
+    """
+    if not texto:
+        return ""
+    # Quitar emojis y espacios iniciales
+    limpio = re.sub(r'^[🛡️📦⭐✨\s]+', '', str(texto)).strip()
+    # Quitar etiquetas finales entre paréntesis (ej: ' (@Sayaka...)', ' (ID: 12345)', ' (Sin vincular)')
+    limpio = re.sub(r'\s*\((?:@[^)]+|ID:\s*[^)]+|Sin vincular|Activo|Reserva|En Reserva)\)\s*$', '', limpio).strip()
+    return limpio
+
 
 def get_db_path():
     return DB_FILE
@@ -350,23 +365,34 @@ async def desactivar_personaje(user_id: str, tupper_tag: str) -> tuple[bool, str
 async def buscar_personaje_por_nombre_db(nombre: str) -> tuple | None:
     """
     Búsqueda directa indexada en SQL por nombre o tupper_tag insensible a mayúsculas.
-    Si no encuentra coincidencia exacta o por LOWER, busca por similitud fonética/normalizada.
+    Soporta términos limpiados de decoradores de autocompletado (🛡️, 📦, (@dueño))
+    y similitud fonética/normalizada Unicode avanzada.
     """
+    if not nombre:
+        return None
+
+    termino_limpio = limpiar_termino_busqueda(nombre)
+
     async with aiosqlite.connect(DB_FILE) as db:
         # 1. Búsqueda directa exacta o insensible a mayúsculas
-        async with db.execute(
-            '''SELECT tupper_tag, nombre, lado, avatar_url, color, color_texto, owner_id, creator_id 
-               FROM Personaje_Tabla 
-               WHERE LOWER(nombre) = LOWER(?) OR LOWER(tupper_tag) = LOWER(?) 
-               LIMIT 1''', 
-            (nombre, nombre)
-        ) as cursor:
-            row = await cursor.fetchone()
-            if row:
-                return row
+        terminos_directos = [nombre]
+        if termino_limpio and termino_limpio != nombre:
+            terminos_directos.append(termino_limpio)
+
+        for t in terminos_directos:
+            async with db.execute(
+                '''SELECT tupper_tag, nombre, lado, avatar_url, color, color_texto, owner_id, creator_id 
+                   FROM Personaje_Tabla 
+                   WHERE LOWER(nombre) = LOWER(?) OR LOWER(tupper_tag) = LOWER(?) 
+                   LIMIT 1''', 
+                (t, t)
+            ) as cursor:
+                row = await cursor.fetchone()
+                if row:
+                    return row
 
         # 2. Búsqueda con normalización Unicode avanzada (letras góticas, símbolos, corchetes, etc.)
-        target_norm = normalizar_texto(nombre)
+        target_norm = normalizar_texto(termino_limpio) or normalizar_texto(nombre)
         if target_norm:
             async with db.execute(
                 'SELECT tupper_tag, nombre, lado, avatar_url, color, color_texto, owner_id, creator_id FROM Personaje_Tabla'
@@ -376,12 +402,16 @@ async def buscar_personaje_por_nombre_db(nombre: str) -> tuple | None:
                 for p in todos:
                     if normalizar_texto(p[1]) == target_norm or normalizar_texto(p[0]) == target_norm:
                         return p
-                # Coincidencia normalizada por contención
+                # Coincidencia normalizada por contención bidireccional
                 for p in todos:
-                    if target_norm in normalizar_texto(p[1]) or target_norm in normalizar_texto(p[0]):
+                    p_nom = normalizar_texto(p[1])
+                    p_tag = normalizar_texto(p[0])
+                    if (p_nom and (target_norm in p_nom or p_nom in target_norm)) or \
+                       (p_tag and (target_norm in p_tag or p_tag in target_norm)):
                         return p
 
     return None
+
 
 async def listar_todos_personajes() -> list[tuple]:
     """Lista todos los personajes registrados (útil para autocompletado)."""
