@@ -76,7 +76,7 @@ class LuaEngine:
 
         with self._get_db() as conn:
             row = conn.execute(
-                'SELECT item_id FROM Items_Catalogo WHERE item_id = ? OR LOWER(nombre) = LOWER(?) OR LOWER(item_id) = ? LIMIT 1',
+                'SELECT item_id FROM Items_Catalogo WHERE LOWER(item_id) = LOWER(?) OR LOWER(nombre) = LOWER(?) OR LOWER(item_id) = ? LIMIT 1',
                 (clean, clean, slug)
             ).fetchone()
             if row:
@@ -123,8 +123,37 @@ class LuaEngine:
         char_tag = self._resolver_personaje_tag(char_input) or char_input
         item_id = self._resolver_item_id(item_input) or item_input
 
+        # Obtener identificador original o nombre del ítem en el catálogo
+        with self._get_db() as conn:
+            row_it = conn.execute(
+                'SELECT item_id, nombre FROM Items_Catalogo WHERE LOWER(item_id) = LOWER(?) OR LOWER(nombre) = LOWER(?) LIMIT 1',
+                (item_id, item_id)
+            ).fetchone()
+            item_db_id = row_it[0] if row_it else item_id
+            item_db_nombre = row_it[1] if row_it else item_input
+
+        # Detectar el casing o formato que el usuario escribió en el script (ej: 'Ticket-General-S')
+        # para que coincida exactamente en comparaciones de igualdad 'item == ...'
+        injected_item = item_input
+        patrones = [
+            r'(?:item|item_id|tipo_pocion)\s*==\s*["\']([^"\']+)["\']',
+            r'["\']([^"\']+)["\']\s*==\s*(?:item|item_id|tipo_pocion)',
+            r'\[["\']([^"\']+)["\']\]\s*='
+        ]
+        candidatos = []
+        for pat in patrones:
+            candidatos.extend(re.findall(pat, script))
+
+        target_norm = item_db_id.lower().replace("-", "").replace("_", "").replace(" ", "")
+        for cand in candidatos:
+            cand_norm = cand.lower().replace("-", "").replace("_", "").replace(" ", "")
+            if cand_norm == target_norm or self._resolver_item_id(cand).lower() == item_db_id.lower():
+                injected_item = cand
+                break
+
         replies = []
         displayed_items = []
+        mutaciones = [0]
 
         def get_inventory_count(c_in, it_in):
             c_tag = self._resolver_personaje_tag(str(c_in)) or str(c_in)
@@ -159,6 +188,7 @@ class LuaEngine:
                     conn.execute('UPDATE Inventarios SET cantidad = ? WHERE personaje_id = ? AND item_id = ?', (nueva, c_tag, i_id))
                 conn.commit()
 
+            mutaciones[0] += 1
             return True
 
         def give_character_item(c_in, it_in, count):
@@ -179,6 +209,7 @@ class LuaEngine:
                     conn.execute('INSERT INTO Inventarios (personaje_id, item_id, cantidad) VALUES (?, ?, ?)', (c_tag, i_id, cnt))
                 conn.commit()
 
+            mutaciones[0] += 1
             return True
 
         def reply(msg):
@@ -209,9 +240,9 @@ class LuaEngine:
 
         # Inyectar variables
         g['char'] = char_tag
-        g['item'] = item_input
+        g['item'] = injected_item
         g['item_id'] = item_id
-        g['tipo_pocion'] = item_input
+        g['tipo_pocion'] = injected_item
         g['amount'] = cantidad
         g['cantidad_usar'] = cantidad
         g['cantidad'] = cantidad
@@ -232,6 +263,9 @@ class LuaEngine:
             if res is False:
                 msg_err = "\n".join(replies) if replies else "La acción fue cancelada por el script."
                 return False, msg_err, displayed_items
+
+            if len(replies) == 0 and mutaciones[0] == 0:
+                return False, f"⚠️ El script se ejecutó pero no coincidió con el ítem '{injected_item}' ni realizó ninguna acción. Comprueba las condiciones del script.", displayed_items
 
             msg_ok = "\n".join(replies) if replies else "Ítem utilizado con éxito."
             return True, msg_ok, displayed_items

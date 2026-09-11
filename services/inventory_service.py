@@ -73,10 +73,27 @@ async def consumir_item(tupper_tag: str, item_id: str, cantidad: int = 1, user_i
     if not item:
         return False, f"El ítem '{item_id}' no existe en el catálogo.", None, []
 
-    if not item.get("es_usable"):
-        return False, f"El ítem **{item['nombre']}** no es un objeto consumible.", None, []
+    # Comprobar si el ítem es utilizable (marcado usable o con script asignado)
+    es_usable = bool(item.get("es_usable")) or bool(item.get("script_id")) or bool(item.get("script_uso"))
+    if not es_usable:
+        return False, f"El ítem **{item['nombre']}** no es un objeto consumible ni tiene un script de uso.", None, []
 
-    # 1. Determinar el script a ejecutar (específico o compartido)
+    # 1. Comprobar stock en el inventario del personaje ANTES de cualquier acción o script
+    inventario = await obtener_inventario_personaje(tupper_tag)
+    disponible = 0
+    for it in inventario:
+        if (
+            it["item_id"].lower() == item_id.lower() or 
+            it["item_id"].lower() == item["item_id"].lower() or 
+            it["nombre"].lower() == item["nombre"].lower()
+        ):
+            disponible = it["cantidad"]
+            break
+
+    if disponible < cantidad:
+        return False, f"Stock insuficiente. No tienes suficientes unidades de **{item['nombre']}** (tienes x{disponible}, necesitas x{cantidad}).", None, []
+
+    # 2. Determinar el script a ejecutar (específico o compartido)
     script_ejecutar = ""
     script_especifico = (item.get("script_uso") or "").strip()
     if script_especifico:
@@ -107,18 +124,7 @@ async def consumir_item(tupper_tag: str, item_id: str, cantidad: int = 1, user_i
         msg_final = msg if msg else (item.get("mensaje_uso") or f"Has utilizado x{cantidad} de {item['nombre']}.")
         return True, msg_final, item, items_mostrados_info
 
-    # 2. Lógica estándar sin script
-    inventario = await obtener_inventario_personaje(tupper_tag)
-    disponible = 0
-    for it in inventario:
-        if it["item_id"].lower() == item_id.lower() or it["item_id"].lower() == item["item_id"].lower():
-            disponible = it["cantidad"]
-            break
-
-    if disponible < cantidad:
-        return False, f"Stock insuficiente. Solo tienes x{disponible} de **{item['nombre']}**.", None, []
-
-    # Descontar del inventario
+    # 3. Lógica estándar sin script (descontar y mostrar mensaje)
     await modificar_cantidad_inventario(tupper_tag, item["item_id"], -cantidad)
     msg_uso = item.get("mensaje_uso") or f"Has utilizado x{cantidad} de {item['nombre']}."
     return True, msg_uso, item, []

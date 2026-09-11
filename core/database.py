@@ -627,12 +627,15 @@ async def actualizar_script_item(item_id: str, script: str) -> bool:
     """Actualiza el script Lua específico de un ítem en el catálogo."""
     iid = item_id.strip().lower()
     async with aiosqlite.connect(DB_FILE) as db:
-        cursor = await db.execute('UPDATE Items_Catalogo SET script_uso = ? WHERE item_id = ? OR LOWER(nombre) = LOWER(?)', (script, iid, item_id))
+        cursor = await db.execute(
+            'UPDATE Items_Catalogo SET script_uso = ?, es_usable = CASE WHEN ? != "" THEN 1 ELSE es_usable END WHERE item_id = ? OR LOWER(nombre) = LOWER(?)', 
+            (script, script.strip() if script else "", iid, item_id)
+        )
         await db.commit()
         return cursor.rowcount > 0
 
 async def asignar_script_item(item_id: str, script_id: str | None) -> tuple[bool, str]:
-    """Asigna o desvincula un script compartido a un ítem."""
+    """Asigna o desvincula un script compartido a un ítem, activando su usabilidad."""
     iid = item_id.strip().lower()
     sid = script_id.strip().lower() if script_id and script_id.strip().lower() not in ("none", "ninguno", "") else None
 
@@ -642,10 +645,13 @@ async def asignar_script_item(item_id: str, script_id: str | None) -> tuple[bool
             if not await cur.fetchone():
                 return False, f"El script compartido con ID `{sid}` no existe."
 
-        cur = await db.execute('UPDATE Items_Catalogo SET script_id = ? WHERE item_id = ? OR LOWER(nombre) = LOWER(?)', (sid, iid, item_id))
+        cur = await db.execute(
+            'UPDATE Items_Catalogo SET script_id = ?, es_usable = CASE WHEN ? IS NOT NULL THEN 1 ELSE es_usable END WHERE item_id = ? OR LOWER(nombre) = LOWER(?)', 
+            (sid, sid, iid, item_id)
+        )
         await db.commit()
         if cur.rowcount > 0:
-            return True, f"Script compartido `{sid}` asignado con éxito." if sid else "Script compartido desasignado."
+            return True, f"Script compartido `{sid}` asignado con éxito (ítem activado como usable)." if sid else "Script compartido desasignado."
         return False, f"No se encontró el ítem `{item_id}`."
 
 # ==========================================
