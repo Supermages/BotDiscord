@@ -46,19 +46,38 @@ El bot transforma los mensajes de Discord en una interfaz web personalizada (HTM
 
 ```plaintext
 BotDiscord/
-├── bot.py                  # Archivo principal: comandos slash, ciclo de eventos y monitor
+├── bot.py                  # Punto de entrada principal y registro de extensiones (~65 líneas)
 ├── requirements.txt        # Dependencias de Python requeridas
-├── .env.example            # Plantilla de variables de entorno
+├── Dockerfile              # Imagen para despliegue contenerizado en la nube
+├── .dockerignore           # Exclusiones para el build de Docker
+├── .env.example            # Plantilla de variables de entorno (con soporte DATABASE_PATH)
 ├── .gitignore              # Archivos y carpetas ignorados por git
 ├── README.md               # Documentación general del proyecto
 │
 ├── core/
 │   ├── __init__.py
-│   └── database.py         # Conexión asíncrona a SQLite (aiosqlite) y queries
+│   ├── config.py           # Configuración centralizada y validación de variables de entorno
+│   ├── database.py         # Conexión asíncrona a SQLite (aiosqlite), índices y caché en RAM
+│   ├── formatters.py       # Limpieza de Markdown y formateo de emojis de Discord a <img>
+│   └── permissions.py      # Decorador @requiere_admin() para control de acceso
+│
+├── services/
+│   ├── __init__.py
+│   ├── tupper_service.py   # Detección y almacenamiento de Webhooks de Tupperbox
+│   ├── chat_sync_service.py # Escaneo de historial, filtrado y parseo multimedia
+│   ├── image_service.py    # Segmentación y generación de imágenes por lotes
+│   └── monitor_service.py  # Gestor de tareas asyncio y ciclo en segundo plano (MonitorManager)
+│
+├── cogs/
+│   ├── __init__.py
+│   ├── chat_commands.py    # Comandos /generarchat y /forzaractualizacion
+│   ├── monitor_commands.py # Comandos /listarmonitores y /detenermonitor
+│   ├── character_commands.py # Comando /editarpersonaje
+│   └── admin_commands.py   # Comandos /configuracion y /spam_ping
 │
 ├── renderer/
 │   ├── __init__.py
-│   ├── captura.py          # Automatización de Playwright para renderizar HTML a PNG
+│   ├── captura.py          # BrowserRenderer singleton persistente (Playwright / Chromium)
 │   ├── index.html          # Plantilla HTML base del chat
 │   ├── mensajes.js         # Lógica JavaScript para inyectar burbujas y adjuntos
 │   ├── styles.css          # Estilos CSS de las burbujas, avatares y contenedor
