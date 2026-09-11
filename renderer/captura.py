@@ -71,7 +71,7 @@ class BrowserRenderer:
                 if not personaje:
                     nombre, lado, avatar_url, color, color_texto = "Desc", "I", "https://cdn.discordapp.com/embed/avatars/0.png", "#FFF", "#000"
                 else:
-                    nombre, lado, avatar_url, color, color_texto = personaje
+                    nombre, lado, avatar_url, color, color_texto = personaje[:5]
 
                 datos_msg = {
                     "container": ".chat-container",
