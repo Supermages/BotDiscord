@@ -17,17 +17,15 @@ def es_admin(user: discord.Member | discord.User) -> bool:
 
 def puede_gestionar_personaje(user: discord.Member | discord.User, personaje_info: tuple | dict) -> tuple[bool, str]:
     """
-    Valida si el usuario tiene permiso para gestionar el personaje.
-    Un personaje puede gestionarse si:
-    1. El usuario tiene el rol Bot Admin.
-    2. El personaje no tiene dueño (en cuyo caso se le ofrece vincularlo).
-    3. El usuario es el dueño registrado (owner_id coincide).
+    Valida si el usuario tiene permiso para gestionar el personaje en acciones de juego.
+    Un personaje SOLO puede gestionarse si está activo (owner_id no es nulo):
+    1. Si no tiene owner_id, está inactivo/en reserva (no accesible para jugar).
+       - Si creator_id == user.id -> "en_reserva_propia".
+       - Si no -> "sin_dueño".
+    2. Si tiene owner_id y coincide con el usuario -> "dueño".
+    3. Si tiene owner_id y el usuario es Bot Admin -> "admin" (override para moderación).
+    4. Si tiene owner_id de otro usuario -> "no_es_dueño".
     """
-    if es_admin(user):
-        return True, "admin"
-
-    # tuple: (nombre, lado, avatar_url, color, color_texto, owner_id)
-    # o tuple de buscar_personaje_por_nombre_db: (tupper_tag, nombre, lado, avatar_url, color, color_texto, owner_id)
     owner_id = None
     creator_id = None
     if isinstance(personaje_info, dict):
@@ -44,14 +42,19 @@ def puede_gestionar_personaje(user: discord.Member | discord.User, personaje_inf
         else:
             owner_id = personaje_info[-1]
 
-    if owner_id and str(owner_id) == str(user.id):
+    # Si el personaje no está activo (owner_id es nulo o vacío)
+    if not owner_id:
+        if creator_id and str(creator_id) == str(user.id):
+            return False, "en_reserva_propia"
+        return False, "sin_dueño"
+
+    # Si está activo y coincide con el usuario
+    if str(owner_id) == str(user.id):
         return True, "dueño"
 
-    if not owner_id and creator_id and str(creator_id) == str(user.id):
-        return False, "en_reserva_propia"
-
-    if not owner_id:
-        return False, "sin_dueño"
+    # Si está activo y el usuario es administrador
+    if es_admin(user):
+        return True, "admin"
 
     return False, "no_es_dueño"
 

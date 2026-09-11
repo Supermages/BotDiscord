@@ -178,6 +178,20 @@ class InventoryCommands(commands.Cog):
         tupper_tag = personaje_info[0]
         nombre = personaje_info[1]
         avatar_url = personaje_info[3] or "https://cdn.discordapp.com/embed/avatars/0.png"
+        owner_id = personaje_info[6] if len(personaje_info) > 6 else None
+        creator_id = personaje_info[7] if len(personaje_info) > 7 else None
+
+        if not owner_id:
+            if creator_id and str(creator_id) == str(interaction.user.id):
+                return await interaction.followup.send(
+                    f"📦 **{nombre}** está en tu reserva personal pero no está activo actualmente.\n"
+                    f"Usa `/pj vincular {nombre}` o `/pj panel` para activarlo en tu cupo antes de ver su inventario.",
+                    ephemeral=True
+                )
+            return await interaction.followup.send(
+                f"❌ El personaje **{nombre}** no está vinculado a ningún jugador activo actualmente (está inactivo o en reserva).",
+                ephemeral=True
+            )
 
         items = await obtener_inventario_personaje(tupper_tag)
         view = InventoryView(
@@ -200,7 +214,7 @@ class InventoryCommands(commands.Cog):
     )
     @app_commands.autocomplete(
         de_personaje=autocomplete_mis_personajes_activos,
-        a_personaje=autocomplete_personajes_todos,
+        a_personaje=autocomplete_personajes_admin_rpg,
         item=autocomplete_items
     )
     async def transferir(
@@ -240,8 +254,27 @@ class InventoryCommands(commands.Cog):
                     f"Usa `/pj vincular {p_origen[1]}` o `/pj panel` para activarlo en tu cupo (hasta 3 personajes).",
                     ephemeral=True
                 )
+            if motivo == "sin_dueño":
+                return await interaction.response.send_message(
+                    f"❌ El personaje origen **{p_origen[1]}** no está vinculado a ningún jugador activo.",
+                    ephemeral=True
+                )
             return await interaction.response.send_message(
                 f"⛔ No tienes permiso para gestionar a **{p_origen[1]}**. Solo su dueño activo o un admin pueden mover sus ítems.",
+                ephemeral=True
+            )
+
+        owner_dest = p_destino[6] if len(p_destino) > 6 else None
+        creator_dest = p_destino[7] if len(p_destino) > 7 else None
+        if not owner_dest:
+            if creator_dest and str(creator_dest) == str(interaction.user.id):
+                return await interaction.response.send_message(
+                    f"📦 El personaje destino **{p_destino[1]}** está en tu reserva pero no está activo.\n"
+                    f"Usa `/pj vincular {p_destino[1]}` o `/pj panel` para activarlo en tu cupo antes de transferirle objetos.",
+                    ephemeral=True
+                )
+            return await interaction.response.send_message(
+                f"❌ El personaje destino **{p_destino[1]}** no está vinculado a ningún jugador activo. Solo se pueden transferir objetos a personajes activos en el rol.",
                 ephemeral=True
             )
 
@@ -337,6 +370,11 @@ class InventoryCommands(commands.Cog):
                 return await interaction.response.send_message(
                     f"📦 **{p_info[1]}** está en tu reserva personal pero no está activo.\n"
                     f"Usa `/pj vincular {p_info[1]}` o `/pj panel` para activarlo en tu cupo (hasta 3 personajes) y poder usar sus ítems.",
+                    ephemeral=True
+                )
+            if motivo == "sin_dueño":
+                return await interaction.response.send_message(
+                    f"❌ El personaje **{p_info[1]}** no está vinculado a ningún jugador activo.",
                     ephemeral=True
                 )
             return await interaction.response.send_message(f"⛔ No eres el dueño activo de **{p_info[1]}**.", ephemeral=True)

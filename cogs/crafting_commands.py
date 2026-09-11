@@ -76,6 +76,11 @@ class CraftingCommands(commands.Cog):
                     f"Usa `/pj vincular {p_info[1]}` o `/pj panel` para activarlo en tu cupo (hasta 3 personajes) antes de fabricar.",
                     ephemeral=True
                 )
+            if motivo == "sin_dueño":
+                return await interaction.followup.send(
+                    f"❌ El personaje **{p_info[1]}** no está vinculado a ningún jugador activo.",
+                    ephemeral=True
+                )
             return await interaction.followup.send(
                 f"⛔ No tienes permiso para usar los materiales de **{p_info[1]}** porque no eres su dueño activo.", 
                 ephemeral=True
