@@ -17,7 +17,12 @@ from core.database import (
     establecer_limite_personajes,
     obtener_limite_personajes,
     actualizar_script_item,
-    editar_item_catalogo
+    editar_item_catalogo,
+    crear_o_actualizar_script,
+    obtener_script,
+    listar_scripts,
+    eliminar_script,
+    asignar_script_item
 )
 from cogs.inventory_commands import (
     autocomplete_personajes_todos, 
@@ -26,6 +31,75 @@ from cogs.inventory_commands import (
 )
 from cogs.crafting_commands import autocomplete_recetas
 from services.lua_service import lua_engine
+
+async def autocomplete_scripts(interaction: discord.Interaction, current: str) -> list[app_commands.Choice[str]]:
+    scripts = await listar_scripts()
+    cur = current.strip().lower()
+    choices = []
+    for s in scripts:
+        label = f"📜 {s['nombre']} ({s['script_id']})"
+        if not cur or cur in s['nombre'].lower() or cur in s['script_id'].lower():
+            choices.append(app_commands.Choice(name=label[:100], value=s['script_id']))
+        if len(choices) >= 25:
+            break
+    return choices
+
+async def autocomplete_scripts_asignar(interaction: discord.Interaction, current: str) -> list[app_commands.Choice[str]]:
+    scripts = await listar_scripts()
+    cur = current.strip().lower()
+    choices = []
+    if not cur or any(w in cur for w in ("ningun", "desasig", "quit", "quitar", "borr")):
+        choices.append(app_commands.Choice(name="❌ Desasignar / Ninguno", value="ninguno"))
+    for s in scripts:
+        label = f"📜 {s['nombre']} ({s['script_id']})"
+        if not cur or cur in s['nombre'].lower() or cur in s['script_id'].lower():
+            choices.append(app_commands.Choice(name=label[:100], value=s['script_id']))
+        if len(choices) >= 25:
+            break
+    return choices
+
+class SharedScriptModal(discord.ui.Modal):
+    def __init__(self, script_id: str, nombre: str, descripcion: str = "", current_codigo: str = "", es_nuevo: bool = False):
+        super().__init__(title=f"Script: {nombre[:35]}")
+        self.script_id = script_id
+        self.nombre = nombre
+        self.descripcion = descripcion
+        self.es_nuevo = es_nuevo
+
+        self.codigo_input = discord.ui.TextInput(
+            label="Código Lua Compartido",
+            style=discord.TextStyle.paragraph,
+            placeholder="-- Escribe aquí la plantilla Lua reutilizable...\nreply('¡Has consumido ' .. item .. '!')",
+            default=current_codigo or "",
+            required=True,
+            max_length=4000
+        )
+        self.add_item(self.codigo_input)
+
+    async def on_submit(self, interaction: discord.Interaction):
+        codigo = self.codigo_input.value.strip()
+        valido, msg_val = lua_engine.validar_sintaxis(codigo)
+        if not valido:
+            embed = discord.Embed(
+                title="❌ Error de Sintaxis Lua",
+                description=f"El script compartido **{self.nombre}** contiene errores y no se ha guardado:\n```text\n{msg_val}\n```",
+                color=0xE74C3C
+            )
+            return await interaction.response.send_message(embed=embed, ephemeral=True)
+
+        await crear_o_actualizar_script(self.script_id, self.nombre, self.descripcion, codigo)
+        embed = discord.Embed(
+            title="📜 Script Compartido Guardado" if not self.es_nuevo else "✨ Script Compartido Creado",
+            description=(
+                f"• **ID:** `{self.script_id}`\n"
+                f"• **Nombre:** **{self.nombre}**\n"
+                f"• **Descripción:** *{self.descripcion or 'Sin descripción'}*"
+            ),
+            color=0x2ECC71
+        )
+        preview = codigo[:800] + ("..." if len(codigo) > 800 else "")
+        embed.add_field(name="Vista Previa", value=f"```lua\n{preview}\n```", inline=False)
+        await interaction.response.send_message(embed=embed, ephemeral=True)
 
 class ItemEditarModal(discord.ui.Modal):
     def __init__(self, item_data: dict):
@@ -566,9 +640,19 @@ class AdminRPGCommands(commands.Cog):
         if not it_data:
             return await interaction.response.send_message(f"❌ Ítem '{item}' no encontrado.", ephemeral=True)
 
-        script = (it_data.get("script_uso") or "").strip()
+        # Resolver script (específico o compartido)
+        script_especifico = (it_data.get("script_uso") or "").strip()
+        shared_id = it_data.get("script_id")
+        shared_data = await obtener_script(shared_id) if shared_id else None
+
+        script = script_especifico
+        origen_str = "Específico del Ítem"
+        if not script and shared_data and shared_data.get("codigo"):
+            script = shared_data["codigo"].strip()
+            origen_str = f"Compartido: {shared_data['nombre']}"
+
         if not script:
-            return await interaction.response.send_message(f"⚠️ El ítem **{it_data['nombre']}** (`{it_data['item_id']}`) no tiene un script Lua asignado.", ephemeral=True)
+            return await interaction.response.send_message(f"⚠️ El ítem **{it_data['nombre']}** (`{it_data['item_id']}`) no tiene ningún script (ni específico ni compartido).", ephemeral=True)
 
         p_info = await buscar_personaje_por_nombre_db(personaje)
         if not p_info:
@@ -586,7 +670,7 @@ class AdminRPGCommands(commands.Cog):
 
         embed = discord.Embed(
             title=f"🧪 Prueba de Script: {it_data.get('emoji', '📦')} {it_data['nombre']}",
-            description=f"**Personaje:** {p_info[1]} | **Cantidad simulada:** {cantidad}\n**Resultado:** {'✅ Éxito' if ok else '❌ Fallo / Abortado'}",
+            description=f"**Personaje:** {p_info[1]} | **Cantidad simulada:** {cantidad}\n**Origen:** `{origen_str}`\n**Resultado:** {'✅ Éxito' if ok else '❌ Fallo / Abortado'}",
             color=0x2ECC71 if ok else 0xE74C3C
         )
         embed.add_field(name="Salida (reply)", value=msg_resultado[:1024] or "*Sin salida*", inline=False)
@@ -598,7 +682,7 @@ class AdminRPGCommands(commands.Cog):
     # ---------------------------------------------------------
     # /admin_rpg item_info
     # ---------------------------------------------------------
-    @admin_rpg_group.command(name="item_info", description="Muestra la información técnica detallada y el script Lua de un ítem.")
+    @admin_rpg_group.command(name="item_info", description="Muestra la información técnica detallada y los scripts de un ítem.")
     @app_commands.describe(item="Ítem a inspeccionar")
     @app_commands.autocomplete(item=autocomplete_items)
     @requiere_admin()
@@ -606,9 +690,6 @@ class AdminRPGCommands(commands.Cog):
         it_data = await obtener_item(item)
         if not it_data:
             return await interaction.response.send_message(f"❌ Ítem '{item}' no encontrado.", ephemeral=True)
-
-        script = (it_data.get("script_uso") or "").strip()
-        script_status = f"✅ Configurado ({len(script)} caracteres)" if script else "❌ Ninguno (lógica por defecto)"
 
         embed = discord.Embed(
             title=f"{it_data.get('emoji', '📦')} {it_data.get('nombre', item)}",
@@ -620,13 +701,182 @@ class AdminRPGCommands(commands.Cog):
         embed.add_field(name="Es Usable", value="✅ Sí" if it_data.get("es_usable") else "❌ No", inline=True)
         if it_data.get("mensaje_uso"):
             embed.add_field(name="Mensaje de Uso", value=f"> {it_data['mensaje_uso']}", inline=False)
-        embed.add_field(name="Script Lua", value=script_status, inline=False)
 
-        if script:
-            preview = script if len(script) <= 950 else script[:950] + "\n-- [Truncado...]"
-            embed.add_field(name="Código del Script", value=f"```lua\n{preview}\n```", inline=False)
+        # Estado de scripts
+        script_especifico = (it_data.get("script_uso") or "").strip()
+        shared_id = it_data.get("script_id")
+        shared_data = await obtener_script(shared_id) if shared_id else None
+
+        info_script = []
+        if script_especifico:
+            info_script.append(f"⭐ **Script Específico (Prioritario):** Activo ({len(script_especifico)} caracteres)")
+        if shared_data:
+            info_script.append(f"🔗 **Script Compartido:** 📜 **{shared_data['nombre']}** (`{shared_data['script_id']}`)")
+        if not script_especifico and not shared_data:
+            info_script.append("❌ *Ninguno (consumo estándar)*")
+
+        embed.add_field(name="Configuración de Scripts", value="\n".join(info_script), inline=False)
+
+        # Mostrar preview del script que realmente se ejecutaría
+        script_activo = script_especifico or (shared_data.get("codigo") if shared_data else "")
+        if script_activo:
+            origen = "Específico del Ítem" if script_especifico else f"Compartido: {shared_data['nombre']}"
+            preview = script_activo if len(script_activo) <= 900 else script_activo[:900] + "\n-- [Truncado...]"
+            embed.add_field(name=f"Código Activo ({origen})", value=f"```lua\n{preview}\n```", inline=False)
 
         await interaction.response.send_message(embed=embed, ephemeral=True)
+
+    # ---------------------------------------------------------
+    # /admin_rpg item_asignar_script
+    # ---------------------------------------------------------
+    @admin_rpg_group.command(name="item_asignar_script", description="Asigna o desvincula un script compartido de la biblioteca a un ítem.")
+    @app_commands.describe(
+        item="Ítem al que asignar el script",
+        script="Script compartido a vincular (o elegir 'Desasignar')"
+    )
+    @app_commands.autocomplete(item=autocomplete_items, script=autocomplete_scripts_asignar)
+    @requiere_admin()
+    async def item_asignar_script(self, interaction: discord.Interaction, item: str, script: str):
+        it_data = await obtener_item(item)
+        if not it_data:
+            return await interaction.response.send_message(f"❌ Ítem '{item}' no encontrado en el catálogo.", ephemeral=True)
+
+        sid = None if script.strip().lower() in ("ninguno", "none", "") else script.strip().lower()
+        if sid:
+            s_data = await obtener_script(sid)
+            if not s_data:
+                return await interaction.response.send_message(f"❌ El script compartido '{script}' no existe en la biblioteca.", ephemeral=True)
+            ok, msg = await asignar_script_item(it_data["item_id"], s_data["script_id"])
+            if ok:
+                embed = discord.Embed(
+                    title="🔗 Script Compartido Asignado",
+                    description=(
+                        f"Se ha asignado el script compartido 📜 **{s_data['nombre']}** (`{s_data['script_id']}`) "
+                        f"al ítem {it_data.get('emoji', '📦')} **{it_data['nombre']}** (`{it_data['item_id']}`)."
+                    ),
+                    color=0x2ECC71
+                )
+                if it_data.get("script_uso"):
+                    embed.add_field(
+                        name="⚠️ Aviso de Prioridad",
+                        value="Este ítem también tiene un script específico propio configurado. El script específico tendrá prioridad sobre el script compartido salvo que lo vacíes.",
+                        inline=False
+                    )
+                await interaction.response.send_message(embed=embed)
+            else:
+                await interaction.response.send_message(f"❌ {msg}", ephemeral=True)
+        else:
+            ok, msg = await asignar_script_item(it_data["item_id"], None)
+            embed = discord.Embed(
+                title="🔓 Script Desasignado",
+                description=f"Se ha retirado el script compartido del ítem {it_data.get('emoji', '📦')} **{it_data['nombre']}**.",
+                color=0xE67E22
+            )
+            await interaction.response.send_message(embed=embed)
+
+    # ---------------------------------------------------------
+    # /admin_rpg script_crear
+    # ---------------------------------------------------------
+    @admin_rpg_group.command(name="script_crear", description="Crea un script Lua compartido en la biblioteca reutilizable.")
+    @app_commands.describe(
+        id="Identificador único del script (slug sin espacios, ej: pocion_base, cofre_gacha)",
+        nombre="Nombre representativo del script",
+        descripcion="Descripción breve de lo que hace el script (opcional)"
+    )
+    @requiere_admin()
+    async def script_crear(self, interaction: discord.Interaction, id: str, nombre: str, descripcion: str = ""):
+        clean_id = re.sub(r'[^a-zA-Z0-9_\-]', '_', id.strip().lower())
+        existente = await obtener_script(clean_id)
+        if existente:
+            return await interaction.response.send_message(f"❌ Ya existe un script compartido con el ID `{clean_id}`.", ephemeral=True)
+
+        modal = SharedScriptModal(clean_id, nombre, descripcion, current_codigo="", es_nuevo=True)
+        await interaction.response.send_modal(modal)
+
+    # ---------------------------------------------------------
+    # /admin_rpg script_editar
+    # ---------------------------------------------------------
+    @admin_rpg_group.command(name="script_editar", description="Edita el código Lua o información de un script compartido.")
+    @app_commands.describe(script="Script compartido a editar")
+    @app_commands.autocomplete(script=autocomplete_scripts)
+    @requiere_admin()
+    async def script_editar(self, interaction: discord.Interaction, script: str):
+        s_data = await obtener_script(script)
+        if not s_data:
+            return await interaction.response.send_message(f"❌ Script compartido '{script}' no encontrado.", ephemeral=True)
+
+        modal = SharedScriptModal(s_data["script_id"], s_data["nombre"], s_data.get("descripcion", ""), current_codigo=s_data.get("codigo", ""), es_nuevo=False)
+        await interaction.response.send_modal(modal)
+
+    # ---------------------------------------------------------
+    # /admin_rpg script_listar
+    # ---------------------------------------------------------
+    @admin_rpg_group.command(name="script_listar", description="Lista todos los scripts Lua compartidos en la biblioteca.")
+    @requiere_admin()
+    async def script_listar(self, interaction: discord.Interaction):
+        scripts = await listar_scripts()
+        if not scripts:
+            return await interaction.response.send_message("ℹ️ No hay scripts compartidos registrados en la biblioteca.", ephemeral=True)
+
+        embed = discord.Embed(
+            title="📜 Biblioteca de Scripts Lua Compartidos",
+            description=f"Total de plantillas registradas: **{len(scripts)}**",
+            color=0x9B59B6
+        )
+        for s in scripts[:25]:
+            desc = s.get("descripcion") or "Sin descripción"
+            code_len = len(s.get("codigo", ""))
+            embed.add_field(
+                name=f"• {s['nombre']} (`{s['script_id']}`)",
+                value=f"*{desc}*\n📏 Tamaño: `{code_len}` caracteres",
+                inline=False
+            )
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+
+    # ---------------------------------------------------------
+    # /admin_rpg script_ver
+    # ---------------------------------------------------------
+    @admin_rpg_group.command(name="script_ver", description="Muestra el código Lua completo de un script compartido.")
+    @app_commands.describe(script="Script compartido a inspeccionar")
+    @app_commands.autocomplete(script=autocomplete_scripts)
+    @requiere_admin()
+    async def script_ver(self, interaction: discord.Interaction, script: str):
+        s_data = await obtener_script(script)
+        if not s_data:
+            return await interaction.response.send_message(f"❌ Script compartido '{script}' no encontrado.", ephemeral=True)
+
+        embed = discord.Embed(
+            title=f"📜 Script: {s_data['nombre']}",
+            description=f"**ID:** `{s_data['script_id']}`\n**Descripción:** *{s_data.get('descripcion') or 'Sin descripción'}*",
+            color=0x3498DB
+        )
+        codigo = s_data.get("codigo", "")
+        preview = codigo if len(codigo) <= 1000 else codigo[:1000] + "\n-- [Truncado...]"
+        embed.add_field(name="Código Lua", value=f"```lua\n{preview}\n```", inline=False)
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+
+    # ---------------------------------------------------------
+    # /admin_rpg script_borrar
+    # ---------------------------------------------------------
+    @admin_rpg_group.command(name="script_borrar", description="Elimina un script compartido de la biblioteca.")
+    @app_commands.describe(script="Script compartido a eliminar")
+    @app_commands.autocomplete(script=autocomplete_scripts)
+    @requiere_admin()
+    async def script_borrar(self, interaction: discord.Interaction, script: str):
+        s_data = await obtener_script(script)
+        if not s_data:
+            return await interaction.response.send_message(f"❌ Script compartido '{script}' no encontrado.", ephemeral=True)
+
+        ok = await eliminar_script(s_data["script_id"])
+        if ok:
+            embed = discord.Embed(
+                title="🗑️ Script Compartido Eliminado",
+                description=f"El script **{s_data['nombre']}** (`{s_data['script_id']}`) fue eliminado. Los ítems asociados volverán al consumo estándar.",
+                color=0xE74C3C
+            )
+            await interaction.response.send_message(embed=embed, ephemeral=True)
+        else:
+            await interaction.response.send_message(f"❌ Error al eliminar el script `{script}`.", ephemeral=True)
 
 
 async def setup(bot: commands.Bot):

@@ -6,7 +6,8 @@ from core.database import (
     modificar_cantidad_inventario,
     transferir_item_atomico,
     obtener_item,
-    vincular_owner_personaje
+    vincular_owner_personaje,
+    obtener_script
 )
 
 def es_admin(user: discord.Member | discord.User) -> bool:
@@ -75,11 +76,19 @@ async def consumir_item(tupper_tag: str, item_id: str, cantidad: int = 1, user_i
     if not item.get("es_usable"):
         return False, f"El ítem **{item['nombre']}** no es un objeto consumible.", None, []
 
-    # 1. Si el ítem tiene un script Lua asignado
-    script = (item.get("script_uso") or "").strip()
-    if script:
+    # 1. Determinar el script a ejecutar (específico o compartido)
+    script_ejecutar = ""
+    script_especifico = (item.get("script_uso") or "").strip()
+    if script_especifico:
+        script_ejecutar = script_especifico
+    elif item.get("script_id"):
+        shared = await obtener_script(item["script_id"])
+        if shared and shared.get("codigo"):
+            script_ejecutar = shared["codigo"].strip()
+
+    if script_ejecutar:
         ok, msg, ids_mostrados = lua_engine.ejecutar_script(
-            script=script,
+            script=script_ejecutar,
             char_input=tupper_tag,
             item_input=item["item_id"],
             cantidad=cantidad,
