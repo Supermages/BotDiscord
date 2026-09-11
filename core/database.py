@@ -130,9 +130,15 @@ async def inicializar_base():
                 categoria TEXT DEFAULT 'Material',
                 descripcion TEXT DEFAULT '',
                 es_usable INTEGER DEFAULT 0,
-                mensaje_uso TEXT DEFAULT ''
+                mensaje_uso TEXT DEFAULT '',
+                script_uso TEXT DEFAULT ''
             )
         ''')
+        try:
+            await db.execute('ALTER TABLE Items_Catalogo ADD COLUMN script_uso TEXT DEFAULT "";')
+            await db.commit()
+        except Exception:
+            pass
         await db.execute('''
             CREATE TABLE IF NOT EXISTS Inventarios (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -508,21 +514,30 @@ async def importar_tuppers_batch(owner_id: str, tuppers: list[dict]) -> dict:
 # 2. CATÁLOGO DE ÍTEMS
 # ==========================================
 
-async def crear_o_actualizar_item(item_id: str, nombre: str, emoji: str = "📦", categoria: str = "Material", descripcion: str = "", es_usable: int = 0, mensaje_uso: str = ""):
+async def crear_o_actualizar_item(item_id: str, nombre: str, emoji: str = "📦", categoria: str = "Material", descripcion: str = "", es_usable: int = 0, mensaje_uso: str = "", script_uso: str = None):
     iid = item_id.strip().lower()
     async with aiosqlite.connect(DB_FILE) as db:
         await db.execute('''
-            INSERT INTO Items_Catalogo (item_id, nombre, emoji, categoria, descripcion, es_usable, mensaje_uso)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO Items_Catalogo (item_id, nombre, emoji, categoria, descripcion, es_usable, mensaje_uso, script_uso)
+            VALUES (?, ?, ?, ?, ?, ?, ?, COALESCE(?, ''))
             ON CONFLICT(item_id) DO UPDATE SET
                 nombre=excluded.nombre,
                 emoji=excluded.emoji,
                 categoria=excluded.categoria,
                 descripcion=excluded.descripcion,
                 es_usable=excluded.es_usable,
-                mensaje_uso=excluded.mensaje_uso
-        ''', (iid, nombre, emoji, categoria, descripcion, es_usable, mensaje_uso))
+                mensaje_uso=excluded.mensaje_uso,
+                script_uso=COALESCE(?, Items_Catalogo.script_uso)
+        ''', (iid, nombre, emoji, categoria, descripcion, es_usable, mensaje_uso, script_uso, script_uso))
         await db.commit()
+
+async def actualizar_script_item(item_id: str, script: str) -> bool:
+    """Actualiza el script Lua de un ítem en el catálogo."""
+    iid = item_id.strip().lower()
+    async with aiosqlite.connect(DB_FILE) as db:
+        cursor = await db.execute('UPDATE Items_Catalogo SET script_uso = ? WHERE item_id = ? OR LOWER(nombre) = LOWER(?)', (script, iid, item_id))
+        await db.commit()
+        return cursor.rowcount > 0
 
 async def obtener_item(item_id: str) -> dict | None:
     iid = item_id.strip().lower()
@@ -572,7 +587,8 @@ async def obtener_inventario_personaje(tupper_tag: str) -> list[dict]:
                 COALESCE(c.categoria, 'Otros') AS categoria,
                 COALESCE(c.descripcion, '') AS descripcion,
                 COALESCE(c.es_usable, 0) AS es_usable,
-                COALESCE(c.mensaje_uso, '') AS mensaje_uso
+                COALESCE(c.mensaje_uso, '') AS mensaje_uso,
+                COALESCE(c.script_uso, '') AS script_uso
             FROM Inventarios i
             LEFT JOIN Items_Catalogo c ON i.item_id = c.item_id
             WHERE i.personaje_id = ? AND i.cantidad > 0

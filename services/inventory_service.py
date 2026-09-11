@@ -58,32 +58,59 @@ def puede_gestionar_personaje(user: discord.Member | discord.User, personaje_inf
 
     return False, "no_es_dueño"
 
-async def consumir_item(tupper_tag: str, item_id: str, cantidad: int = 1) -> tuple[bool, str, dict | None]:
+from services.lua_service import lua_engine
+
+async def consumir_item(tupper_tag: str, item_id: str, cantidad: int = 1, user_id: str = "") -> tuple[bool, str, dict | None, list[dict]]:
     """
     Consume un ítem usable del inventario de un personaje y retorna el mensaje de efecto.
+    Si el ítem tiene un script Lua asignado, lo ejecuta. Si no, usa la lógica estándar.
     """
     if cantidad <= 0:
-        return False, "La cantidad debe ser mayor a 0.", None
+        return False, "La cantidad debe ser mayor a 0.", None, []
 
     item = await obtener_item(item_id)
     if not item:
-        return False, f"El ítem '{item_id}' no existe en el catálogo.", None
+        return False, f"El ítem '{item_id}' no existe en el catálogo.", None, []
 
     if not item.get("es_usable"):
-        return False, f"El ítem **{item['nombre']}** no es un objeto consumible.", None
+        return False, f"El ítem **{item['nombre']}** no es un objeto consumible.", None, []
 
-    # Comprobar si el personaje tiene suficiente
+    # 1. Si el ítem tiene un script Lua asignado
+    script = (item.get("script_uso") or "").strip()
+    if script:
+        ok, msg, ids_mostrados = lua_engine.ejecutar_script(
+            script=script,
+            char_input=tupper_tag,
+            item_input=item["item_id"],
+            cantidad=cantidad,
+            user_id=str(user_id)
+        )
+        if not ok:
+            return False, msg, item, []
+
+        # Cargar metadatos de los ítems llamados con display_item()
+        items_mostrados_info = []
+        for d_id in ids_mostrados:
+            d_it = await obtener_item(d_id)
+            if d_it:
+                items_mostrados_info.append(d_it)
+
+        msg_final = msg if msg else (item.get("mensaje_uso") or f"Has utilizado x{cantidad} de {item['nombre']}.")
+        return True, msg_final, item, items_mostrados_info
+
+    # 2. Lógica estándar sin script
     inventario = await obtener_inventario_personaje(tupper_tag)
     disponible = 0
     for it in inventario:
-        if it["item_id"].lower() == item_id.lower():
+        if it["item_id"].lower() == item_id.lower() or it["item_id"].lower() == item["item_id"].lower():
             disponible = it["cantidad"]
             break
 
     if disponible < cantidad:
-        return False, f"Stock insuficiente. Solo tienes x{disponible} de **{item['nombre']}**.", None
+        return False, f"Stock insuficiente. Solo tienes x{disponible} de **{item['nombre']}**.", None, []
 
     # Descontar del inventario
-    await modificar_cantidad_inventario(tupper_tag, item_id, -cantidad)
+    await modificar_cantidad_inventario(tupper_tag, item["item_id"], -cantidad)
     msg_uso = item.get("mensaje_uso") or f"Has utilizado x{cantidad} de {item['nombre']}."
-    return True, msg_uso, item
+    return True, msg_uso, item, []
+
