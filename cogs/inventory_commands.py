@@ -106,7 +106,12 @@ class InventoryCommands(commands.Cog):
         avatar_url = personaje_info[3] or "https://cdn.discordapp.com/embed/avatars/0.png"
 
         items = await obtener_inventario_personaje(tupper_tag)
-        view = InventoryView(interaction, tupper_tag, nombre, avatar_url, items)
+        view = InventoryView(
+            items=items,
+            personaje_nombre=nombre,
+            avatar_url=avatar_url,
+            autor_id=interaction.user.id
+        )
         await interaction.followup.send(embed=view.generar_embed(), view=view)
 
     # ---------------------------------------------------------

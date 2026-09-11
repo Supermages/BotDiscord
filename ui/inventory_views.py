@@ -7,15 +7,27 @@ class InventoryView(discord.ui.View):
     """
     Vista interactiva con botones para explorar el inventario paginado estilo MythOS.
     """
-    def __init__(self, items: list[dict], personaje_nombre: str, avatar_url: str, autor_id: int, items_por_pagina: int = 8):
+    def __init__(self, *args, **kwargs):
         super().__init__(timeout=180)
-        self.items = items
-        self.personaje_nombre = personaje_nombre
-        self.avatar_url = avatar_url or "https://cdn.discordapp.com/embed/avatars/0.png"
-        self.autor_id = autor_id
-        self.items_por_pagina = items_por_pagina
+        # Soporte para ambas firmas:
+        # 1. InventoryView(items, personaje_nombre, avatar_url, autor_id, items_por_pagina=8)
+        # 2. InventoryView(interaction, tupper_tag, nombre, avatar_url, items, items_por_pagina=8)
+        if len(args) > 0 and isinstance(args[0], discord.Interaction):
+            interaction = args[0]
+            self.autor_id = interaction.user.id
+            self.personaje_nombre = args[2] if len(args) > 2 else kwargs.get("nombre", "Personaje")
+            self.avatar_url = (args[3] if len(args) > 3 and args[3] else kwargs.get("avatar_url")) or "https://cdn.discordapp.com/embed/avatars/0.png"
+            self.items = args[4] if len(args) > 4 and isinstance(args[4], list) else kwargs.get("items", [])
+            self.items_por_pagina = args[5] if len(args) > 5 else kwargs.get("items_por_pagina", 8)
+        else:
+            self.items = args[0] if len(args) > 0 and isinstance(args[0], list) else kwargs.get("items", [])
+            self.personaje_nombre = args[1] if len(args) > 1 else kwargs.get("personaje_nombre", "Personaje")
+            self.avatar_url = (args[2] if len(args) > 2 and args[2] else kwargs.get("avatar_url")) or "https://cdn.discordapp.com/embed/avatars/0.png"
+            self.autor_id = args[3] if len(args) > 3 else kwargs.get("autor_id", 0)
+            self.items_por_pagina = args[4] if len(args) > 4 else kwargs.get("items_por_pagina", 8)
+
         self.pagina_actual = 0
-        self.total_paginas = max(1, math.ceil(len(items) / items_por_pagina))
+        self.total_paginas = max(1, math.ceil(len(self.items) / self.items_por_pagina))
         self.message = None
 
         self._actualizar_botones()
