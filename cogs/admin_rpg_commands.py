@@ -13,23 +13,30 @@ from core.database import (
     crear_receta,
     eliminar_receta,
     vincular_owner_personaje,
-    listar_items_catalogo
+    listar_items_catalogo,
+    establecer_limite_personajes,
+    obtener_limite_personajes
 )
-from cogs.inventory_commands import autocomplete_personajes, autocomplete_items
+from cogs.inventory_commands import autocomplete_personajes_todos, autocomplete_items
 from cogs.crafting_commands import autocomplete_recetas
 
 class AdminRPGCommands(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
 
-    @app_commands.command(name="item_crear", description="Crea o actualiza un ítem en el catálogo maestro.")
+    admin_rpg_group = app_commands.Group(name="admin_rpg", description="Comandos de administración del sistema RPG")
+
+    # ---------------------------------------------------------
+    # /admin_rpg item_crear
+    # ---------------------------------------------------------
+    @admin_rpg_group.command(name="item_crear", description="Crea o actualiza un ítem en el catálogo maestro.")
     @app_commands.describe(
         id="Identificador único (slug sin espacios, ej: pocion_leve, ticket_arma_s)",
         nombre="Nombre mostrado del objeto",
         emoji="Emoji o icono identificativo (ej: 🧪, 🎟️, ⚔️)",
         categoria="Categoría del objeto (Consumible, Material, Arma, Ticket, Especial)",
         descripcion="Descripción breve del objeto",
-        es_usable="¿Se puede consumir directamente con /usar_item?",
+        es_usable="¿Se puede consumir directamente con /inv usar?",
         mensaje_uso="Mensaje mostrado al consumirlo (opcional)"
     )
     @app_commands.choices(categoria=[
@@ -65,25 +72,31 @@ class AdminRPGCommands(commands.Cog):
         )
 
         embed = discord.Embed(
-            title="📦 Ítem Guardado en Catálogo",
+            title="📦 Ítem Registrado en Catálogo",
             description=(
                 f"• **ID:** `{clean_id}`\n"
                 f"• **Nombre:** {emoji} **{nombre}**\n"
-                f"• **Categoría:** {cat_str}\n"
-                f"• **Usable:** {'Sí' if es_usable else 'No'}\n"
+                f"• **Categoría:** `{cat_str}`\n"
+                f"• **Es Usable:** {'Sí' if es_usable else 'No'}\n"
                 f"• **Descripción:** *{descripcion or 'Sin descripción'}*"
             ),
             color=0x2ECC71
         )
-        await interaction.response.send_message(embed=embed, ephemeral=True)
+        if mensaje_uso:
+            embed.add_field(name="Mensaje de Uso", value=f"> {mensaje_uso}", inline=False)
 
-    @app_commands.command(name="item_dar", description="Entrega objetos al inventario de un personaje.")
+        await interaction.response.send_message(embed=embed)
+
+    # ---------------------------------------------------------
+    # /admin_rpg item_dar
+    # ---------------------------------------------------------
+    @admin_rpg_group.command(name="item_dar", description="Entrega objetos al inventario de un personaje.")
     @app_commands.describe(
         personaje="Personaje destinatario",
         item="Ítem a entregar",
         cantidad="Cantidad de unidades a añadir"
     )
-    @app_commands.autocomplete(personaje=autocomplete_personajes, item=autocomplete_items)
+    @app_commands.autocomplete(personaje=autocomplete_personajes_todos, item=autocomplete_items)
     @requiere_admin()
     async def item_dar(self, interaction: discord.Interaction, personaje: str, item: str, cantidad: int = 1):
         if cantidad <= 0:
@@ -106,13 +119,16 @@ class AdminRPGCommands(commands.Cog):
         )
         await interaction.response.send_message(embed=embed)
 
-    @app_commands.command(name="item_quitar", description="Retira objetos del inventario de un personaje.")
+    # ---------------------------------------------------------
+    # /admin_rpg item_quitar
+    # ---------------------------------------------------------
+    @admin_rpg_group.command(name="item_quitar", description="Retira objetos del inventario de un personaje.")
     @app_commands.describe(
         personaje="Personaje al que quitar el ítem",
         item="Ítem a retirar",
         cantidad="Cantidad de unidades a restar"
     )
-    @app_commands.autocomplete(personaje=autocomplete_personajes, item=autocomplete_items)
+    @app_commands.autocomplete(personaje=autocomplete_personajes_todos, item=autocomplete_items)
     @requiere_admin()
     async def item_quitar(self, interaction: discord.Interaction, personaje: str, item: str, cantidad: int = 1):
         if cantidad <= 0:
@@ -135,13 +151,16 @@ class AdminRPGCommands(commands.Cog):
         )
         await interaction.response.send_message(embed=embed)
 
-    @app_commands.command(name="receta_crear", description="Crea una receta de crafteo. Ingredientes en formato 'id:cant,id2:cant'.")
+    # ---------------------------------------------------------
+    # /admin_rpg receta_crear
+    # ---------------------------------------------------------
+    @admin_rpg_group.command(name="receta_crear", description="Crea una receta de crafteo. Ingredientes en formato 'id:cant,id2:cant'.")
     @app_commands.describe(
         id="Identificador único de la receta (ej: pocion_media)",
         nombre="Nombre de la receta",
         resultado_item="Ítem que produce la receta",
         resultado_cantidad="Cantidad producida por crafteo",
-        ingredientes_texto="Ingredientes y cantidades requeridas (ej: pocion_leve:2,hierba:1)",
+        ingredientes_texto="Ingredientes y cantidades requeridas (ej: espada_hierro:1,lingote_hierro:2)",
         descripcion="Descripción o notas de la receta"
     )
     @app_commands.autocomplete(resultado_item=autocomplete_items)
@@ -159,13 +178,12 @@ class AdminRPGCommands(commands.Cog):
         if resultado_cantidad <= 0:
             return await interaction.response.send_message("❌ La cantidad de resultado debe ser mayor a 0.", ephemeral=True)
 
-        # Parsear ingredientes_texto (ej: "pocion_leve:2, hierba:1")
         ingredientes = {}
         partes = [p.strip() for p in ingredientes_texto.split(",") if p.strip()]
 
         if not partes:
             return await interaction.response.send_message(
-                "❌ Debes indicar al menos un ingrediente en formato `item_id:cantidad` (ej: `pocion_leve:2,hierba:1`).", 
+                "❌ Debes indicar al menos un ingrediente en formato `item_id:cantidad` (ej: `espada:1,hierro:2`).", 
                 ephemeral=True
             )
 
@@ -180,6 +198,16 @@ class AdminRPGCommands(commands.Cog):
                 ingredientes[sub_id.strip().lower()] = cant_int
             except ValueError:
                 return await interaction.response.send_message(f"❌ Cantidad inválida en '{p}'. Debe ser un número positivo.", ephemeral=True)
+
+        clean_resultado = resultado_item.strip().lower()
+
+        # Validación especial: el ítem puede ser ingrediente de sí mismo (upgrade), pero no el único
+        if clean_resultado in ingredientes and len(ingredientes) == 1:
+            return await interaction.response.send_message(
+                f"❌ La receta no puede requerir únicamente el mismo ítem que produce (`{clean_resultado}`). "
+                "Debe incluir materiales adicionales para su mejora o transformación.",
+                ephemeral=True
+            )
 
         clean_id = re.sub(r'[^a-zA-Z0-9_\-]', '_', id.strip().lower())
         await crear_receta(
@@ -198,26 +226,35 @@ class AdminRPGCommands(commands.Cog):
                 f"• **ID:** `{clean_id}`\n"
                 f"• **Nombre:** **{nombre}**\n"
                 f"• **Resultado:** `{resultado_item}` x{resultado_cantidad}\n\n"
-                f"**Ingredientes necesarios:**\n{ings_desc}"
+                f"**Ingredientes Requeridos:**\n{ings_desc}"
             ),
             color=0x2ECC71
         )
-        await interaction.response.send_message(embed=embed, ephemeral=True)
+        await interaction.response.send_message(embed=embed)
 
-    @app_commands.command(name="receta_borrar", description="Elimina una receta de crafteo del sistema.")
-    @app_commands.describe(receta="Receta a eliminar")
+    # ---------------------------------------------------------
+    # /admin_rpg receta_borrar
+    # ---------------------------------------------------------
+    @admin_rpg_group.command(name="receta_borrar", description="Elimina una receta del catálogo.")
+    @app_commands.describe(receta="ID de la receta a eliminar")
     @app_commands.autocomplete(receta=autocomplete_recetas)
     @requiere_admin()
     async def receta_borrar(self, interaction: discord.Interaction, receta: str):
         ok = await eliminar_receta(receta)
         if ok:
-            await interaction.response.send_message(f"✅ Receta `{receta}` eliminada con éxito.", ephemeral=True)
+            await interaction.response.send_message(f"🗑️ Receta `{receta}` eliminada del catálogo.", ephemeral=True)
         else:
             await interaction.response.send_message(f"❌ No se encontró la receta `{receta}`.", ephemeral=True)
 
-    @app_commands.command(name="vincular_admin", description="Asigna o cambia forzosamente el dueño de un personaje.")
-    @app_commands.describe(personaje="Personaje a reasignar", usuario="Nuevo usuario de Discord propietario")
-    @app_commands.autocomplete(personaje=autocomplete_personajes)
+    # ---------------------------------------------------------
+    # /admin_rpg vincular_admin
+    # ---------------------------------------------------------
+    @admin_rpg_group.command(name="vincular_admin", description="Asigna o cambia forzosamente el dueño de un personaje.")
+    @app_commands.describe(
+        personaje="Personaje a vincular",
+        usuario="Nuevo usuario dueño del personaje"
+    )
+    @app_commands.autocomplete(personaje=autocomplete_personajes_todos)
     @requiere_admin()
     async def vincular_admin(self, interaction: discord.Interaction, personaje: str, usuario: discord.Member):
         p_info = await buscar_personaje_por_nombre_db(personaje)
@@ -227,10 +264,30 @@ class AdminRPGCommands(commands.Cog):
         await vincular_owner_personaje(p_info[0], str(usuario.id))
         embed = discord.Embed(
             title="👑 Reasignación de Personaje",
-            description=f"El personaje **{p_info[1]}** ha sido asignado al usuario {usuario.mention} exitosamente.",
-            color=0xF1C40F
+            description=f"El personaje **{p_info[1]}** ha sido asignado al usuario {usuario.mention}.",
+            color=0x9B59B6
         )
         await interaction.response.send_message(embed=embed)
+
+    # ---------------------------------------------------------
+    # /admin_rpg limite_personajes
+    # ---------------------------------------------------------
+    @admin_rpg_group.command(name="limite_personajes", description="Configura el cupo máximo de personajes activos por usuario.")
+    @app_commands.describe(cantidad="Número máximo de personajes activos (ej: 3, 5)")
+    @requiere_admin()
+    async def limite_personajes(self, interaction: discord.Interaction, cantidad: int):
+        if cantidad <= 0 or cantidad > 25:
+            return await interaction.response.send_message("❌ El límite debe estar entre 1 y 25.", ephemeral=True)
+
+        guild_id = str(interaction.guild_id) if interaction.guild_id else None
+        await establecer_limite_personajes(guild_id, cantidad)
+        embed = discord.Embed(
+            title="⚙️ Límite de Personajes Actualizado",
+            description=f"El límite de personajes activos por usuario en este servidor se ha fijado en **{cantidad}**.",
+            color=0x2ECC71
+        )
+        await interaction.response.send_message(embed=embed)
+
 
 async def setup(bot: commands.Bot):
     await bot.add_cog(AdminRPGCommands(bot))

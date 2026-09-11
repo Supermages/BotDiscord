@@ -1,6 +1,7 @@
 import os
 import json
 import re
+import asyncio
 import datetime
 import logging
 from datetime import timezone
@@ -11,7 +12,7 @@ from discord.ext import commands
 from core.config import Config
 from core.permissions import requiere_admin
 from core.formatters import limpiar_formato_discord
-from core.database import obtener_personaje, guardar_personaje, get_modo_captura
+from core.database import obtener_personaje, guardar_personaje, get_modo_captura, set_modo_captura
 from ui.views import LadoView
 from services.tupper_service import detectar_tupperbox_id
 from services.chat_sync_service import procesar_adjuntos_mensaje, actualizar_chat_logica
@@ -22,22 +23,25 @@ class ChatCommands(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
 
-    @app_commands.command(name="generarchat", description="Genera un chat segmentado en varias imágenes.")
+    chat_group = app_commands.Group(name="chat", description="Comandos de captura y renderizado de chat")
+
+    # ---------------------------------------------------------
+    # /chat generar
+    # ---------------------------------------------------------
+    @chat_group.command(name="generar", description="Genera un chat segmentado en varias imágenes.")
     @app_commands.describe(
         cantidad="Cantidad total de mensajes", 
         title="Título del chat", 
         duracion="Duración monitor en minutos (0 para no monitorear)"
     )
     @requiere_admin()
-    async def generarchat(self, interaction: discord.Interaction, cantidad: int = 20, title: str = "chat", duracion: int = 5):
+    async def generar(self, interaction: discord.Interaction, cantidad: int = 20, title: str = "chat", duracion: int = 5):
         channel = interaction.channel
 
-        # Detener monitor previo si ya existía en este canal
         if monitor_manager.esta_activo(channel.id):
             monitor_manager.detener_monitor(channel.id)
             await channel.send("🔄 Se ha detenido el monitor anterior para iniciar el nuevo.", delete_after=5)
 
-        # Validación de límites
         if cantidad > Config.MAX_MENSAJES_TOTAL:
             return await interaction.response.send_message(
                 f"❌ **Límite excedido.** El máximo permitido es **{Config.MAX_MENSAJES_TOTAL}** mensajes.", 
@@ -50,7 +54,6 @@ class ChatCommands(commands.Cog):
 
         logging.info(f"GenerarChat: Iniciando en #{channel.name}. Modo: {modo_captura} | Cantidad: {cantidad}")
 
-        # Selección de mensajes según el modo
         if modo_captura == 'TUPPER':
             tupperbox_id = await detectar_tupperbox_id(channel)
             if not tupperbox_id:
@@ -59,24 +62,22 @@ class ChatCommands(commands.Cog):
             async for msg in channel.history(limit=Config.SEARCH_LIMIT):
                 if msg.webhook_id and msg.author.id == tupperbox_id:
                     mensajes_a_procesar.append(msg)
-                if len(mensajes_a_procesar) >= cantidad:
-                    break
+                    if len(mensajes_a_procesar) >= cantidad:
+                        break
         else:
             async for msg in channel.history(limit=Config.SEARCH_LIMIT):
-                if msg.author.id == self.bot.user.id or msg.content.startswith("!"):
-                    continue
-                mensajes_a_procesar.append(msg)
-                if len(mensajes_a_procesar) >= cantidad:
-                    break
+                if msg.author.id != self.bot.user.id and not msg.content.startswith("/"):
+                    mensajes_a_procesar.append(msg)
+                    if len(mensajes_a_procesar) >= cantidad:
+                        break
 
-        logging.info(f"GenerarChat: Se procesarán {len(mensajes_a_procesar)} mensajes.")
+        mensajes_a_procesar.reverse()
 
-        # Procesamiento y guardado de personajes
         mensajes_json = []
-        for msg in reversed(mensajes_a_procesar):
-            personaje_nombre = msg.author.display_name
-            tupper_tag = re.sub(r'[^a-zA-Z0-9_]', '_', str(msg.author.name))
-            avatar_url = str(msg.author.avatar.url) if msg.author.avatar else "https://cdn.discordapp.com/embed/avatars/0.png"
+        for msg in mensajes_a_procesar:
+            tupper_tag = msg.author.name
+            personaje_nombre = tupper_tag.split(" - ")[0] if " - " in tupper_tag else tupper_tag
+            avatar_url = str(msg.author.display_avatar.url)
 
             personaje = await obtener_personaje(tupper_tag)
             if not personaje:
@@ -115,38 +116,40 @@ class ChatCommands(commands.Cog):
         chat_json = {
             "Chat": {
                 "titulo": titulo_real,
-                "fecha": timestamp,
-                "ultimo_id": last_id,
-                "mensajes": mensajes_json
+                "timestamp": timestamp,
+                "id": f"chat_{channel.id}_{timestamp}",
+                "mensajes": mensajes_json,
+                "canal_id": channel.id,
+                "mensaje_id": None,
+                "duracion_monitor": duracion,
+                "last_processed_message_id": last_id
             }
         }
 
-        json_filename = os.path.join(Config.EXPORT_FOLDER, f"chat_{channel.id}.json")
+        json_path = os.path.join(Config.EXPORT_FOLDER, f"chat_{channel.id}.json")
         async with monitor_manager.file_lock:
-            with open(json_filename, "w", encoding="utf-8") as f:
+            with open(json_path, "w", encoding="utf-8") as f:
                 json.dump(chat_json, f, indent=4, ensure_ascii=False)
 
-        # Generación de imágenes
         try:
-            rutas_imagenes = await generar_imagenes_por_lotes(channel.id, chat_json, titulo_real)
-            archivos_discord = [discord.File(path) for path in rutas_imagenes]
+            rutas = await generar_imagenes_por_lotes(chat_json, channel.id)
+            archivos = [discord.File(ruta) for ruta in rutas]
 
             msg = await interaction.followup.send(
-                content=f"✅ Chat generado en **{len(rutas_imagenes)} partes**:",
-                files=archivos_discord
+                content=f"📸 Chat renderizado: **{titulo_real}** ({len(mensajes_json)} mensajes)", 
+                files=archivos
             )
 
-            for path in rutas_imagenes:
-                if os.path.exists(path):
-                    os.remove(path)
+            for ruta in rutas:
+                if os.path.exists(ruta):
+                    os.remove(ruta)
 
-            # Registrar monitor si duration > 0
+            chat_json["Chat"]["mensaje_id"] = msg.id
+            async with monitor_manager.file_lock:
+                with open(json_path, "w", encoding="utf-8") as f:
+                    json.dump(chat_json, f, indent=4, ensure_ascii=False)
+
             if duracion > 0:
-                chat_json["Chat"]["mensaje_id"] = msg.id
-                async with monitor_manager.file_lock:
-                    with open(json_filename, "w", encoding="utf-8") as f:
-                        json.dump(chat_json, f, indent=4, ensure_ascii=False)
-
                 monitor_manager.registrar_monitor(
                     channel=channel, 
                     message_id=msg.id, 
@@ -159,9 +162,12 @@ class ChatCommands(commands.Cog):
             logging.error(f"Error generando imágenes: {e}")
             await interaction.followup.send("❌ Hubo un error generando las imágenes.")
 
-    @app_commands.command(name="forzaractualizacion", description="Fuerza la actualización del chat (detecta nuevos mensajes)")
+    # ---------------------------------------------------------
+    # /chat forzar
+    # ---------------------------------------------------------
+    @chat_group.command(name="forzar", description="Fuerza la actualización del chat renderizado.")
     @requiere_admin()
-    async def forzaractualizacion(self, interaction: discord.Interaction):
+    async def forzar(self, interaction: discord.Interaction):
         await interaction.response.defer()
         json_filename = os.path.join(Config.EXPORT_FOLDER, f"chat_{interaction.channel.id}.json")
 
@@ -204,6 +210,113 @@ class ChatCommands(commands.Cog):
                 description="No hubo nuevos mensajes.",
                 color=0xFFFF00
             ))
+
+    # ---------------------------------------------------------
+    # /chat monitores
+    # ---------------------------------------------------------
+    @chat_group.command(name="monitores", description="Muestra todos los canales con monitores de chat activos.")
+    @requiere_admin()
+    async def monitores(self, interaction: discord.Interaction):
+        monitores = monitor_manager.obtener_monitores()
+        if not monitores:
+            embed = discord.Embed(
+                title="📭 Monitores activos",
+                description="Actualmente no hay ningún monitor activo.",
+                color=0xAAAAAA
+            )
+            return await interaction.response.send_message(embed=embed, ephemeral=True)
+
+        desc = ""
+        ahora = datetime.datetime.now(timezone.utc)
+        for canal_id, info in monitores.items():
+            restante = max(0, (info["hasta"] - ahora).total_seconds() // 60)
+            desc += f"• Canal <#{canal_id}> — {int(restante)} min restantes\n"
+
+        embed = discord.Embed(
+            title="📡 Monitores activos",
+            description=desc,
+            color=0x00B0F4
+        )
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+
+    # ---------------------------------------------------------
+    # /chat detener
+    # ---------------------------------------------------------
+    @chat_group.command(name="detener", description="Detiene el monitor de auto-actualización en el canal actual.")
+    @requiere_admin()
+    async def detener(self, interaction: discord.Interaction):
+        canal_id = interaction.channel.id
+        detenido = monitor_manager.detener_monitor(canal_id)
+
+        if detenido:
+            embed = discord.Embed(
+                title="🛑 Monitor detenido",
+                description="El monitor de este canal ha sido detenido correctamente.",
+                color=0xFF5733
+            )
+        else:
+            embed = discord.Embed(
+                title="⚠️ Sin monitor",
+                description="Este canal no tiene un monitor activo actualmente.",
+                color=0xCCCC00
+            )
+
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+
+    # ---------------------------------------------------------
+    # /chat configuracion
+    # ---------------------------------------------------------
+    @chat_group.command(name="configuracion", description="Configura el modo de captura del chat (Tupperbox o Todo).")
+    @app_commands.describe(modo="Elige qué mensajes debe capturar el bot")
+    @app_commands.choices(modo=[
+        app_commands.Choice(name="🎭 Solo Tupperbox (Por defecto)", value="TUPPER"),
+        app_commands.Choice(name="📢 Todo el chat (Usuarios y Bots)", value="TODO")
+    ])
+    @requiere_admin()
+    async def configuracion(self, interaction: discord.Interaction, modo: app_commands.Choice[str]):
+        await set_modo_captura(interaction.guild_id, modo.value)
+        
+        texto = "🎭 **Solo Tupperbox**" if modo.value == "TUPPER" else "📢 **Todo el chat**"
+        embed = discord.Embed(
+            title="⚙️ Configuración Actualizada", 
+            description=f"Ahora el bot capturará: {texto}",
+            color=0x00FF00
+        )
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+
+    # ---------------------------------------------------------
+    # /chat spam_ping
+    # ---------------------------------------------------------
+    @chat_group.command(name="spam_ping", description="Envía un número de menciones consecutivas a un usuario.")
+    @app_commands.describe(
+        usuario="El usuario al que quieres mencionar", 
+        cantidad="Número de veces a enviar el ping (máximo 30000)"
+    )
+    async def spam_ping(self, interaction: discord.Interaction, usuario: discord.Member, cantidad: int):
+        limite_maximo = 30000
+        if cantidad > limite_maximo:
+            embed = discord.Embed(
+                title="❌ Límite excedido", 
+                description=f"Para evitar que Discord penalice al bot, el máximo de pings permitidos es **{limite_maximo}**.", 
+                color=0xFF0000
+            )
+            return await interaction.response.send_message(embed=embed, ephemeral=True)
+
+        if cantidad <= 0:
+            return await interaction.response.send_message("❌ La cantidad debe ser mayor a 0.", ephemeral=True)
+
+        await interaction.response.send_message(
+            f"✅ Iniciando el envío de {cantidad} pings a {usuario.display_name}...", 
+            ephemeral=True
+        )
+
+        for _ in range(cantidad):
+            try:
+                await interaction.channel.send(f"{usuario.mention}")
+                await asyncio.sleep(1.5)
+            except discord.Forbidden:
+                break
+
 
 async def setup(bot: commands.Bot):
     await bot.add_cog(ChatCommands(bot))

@@ -32,7 +32,12 @@ def puede_gestionar_personaje(user: discord.Member | discord.User, personaje_inf
     if isinstance(personaje_info, dict):
         owner_id = personaje_info.get("owner_id")
     elif isinstance(personaje_info, (tuple, list)):
-        owner_id = personaje_info[-1] # siempre es el último campo
+        if len(personaje_info) >= 7:
+            owner_id = personaje_info[6]
+        elif len(personaje_info) == 6:
+            owner_id = personaje_info[5]
+        else:
+            owner_id = personaje_info[-1]
 
     if not owner_id:
         return False, "sin_dueño"

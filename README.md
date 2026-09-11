@@ -185,39 +185,50 @@ Al iniciar, el bot creará automáticamente las tablas SQLite en `data/eridubot.
 
 ## ⌨️ Comandos Slash
 
-### 1. Comandos de Renderizado y Utilidad
+### 1. Inventario (`/inv`)
 | Comando | Permisos | Parámetros | Descripción |
 | :--- | :--- | :--- | :--- |
-| `/generarchat` | Admin | `cantidad` *(int, opc)*, `title` *(str, opc)*, `duracion` *(int, opc)* | Genera la conversación en imágenes segmentadas e inicia el monitor en tiempo real. |
-| `/forzaractualizacion` | Admin | *Ninguno* | Fuerza la actualización manual inmediata del chat generado previamente. |
-| `/listarmonitores` | Admin | *Ninguno* | Lista todos los canales que tienen un monitor de auto-actualización activo. |
-| `/detenermonitor` | Admin | *Ninguno* | Detiene y cancela inmediatamente el monitor activo en el canal actual. |
-| `/editarpersonaje` | Admin | `nombre` *(str, req)* | Menú interactivo para personalizar lado (izq/der), color de fondo y de texto. |
-| `/configuracion` | Admin | `modo` (`TUPPER` / `TODO`) | Define el modo de captura para el servidor actual. |
-| `/spam_ping` | Público | `usuario` *(Member, req)*, `cantidad` *(int, req)* | Envía menciones continuas espaciadas por 1.5s (máx. 30,000). |
+| `/inv ver` | Público | `personaje` *(str, opc)* | Muestra el inventario interactivo estilo MythOS con botones ◀, ▶ y Close. Si se omite, muestra tu personaje activo. |
+| `/inv transferir` | Público | `de_personaje` *(str)*, `a_personaje` *(str)*, `item` *(str)*, `cantidad` *(int)* | Transfiere objetos entre personajes con confirmación interactiva `[✅]` / `[❌]`. |
+| `/inv usar` | Público | `personaje` *(str)*, `item` *(str)*, `cantidad` *(int)* | Consume un ítem usable de tu personaje activo y ejecuta su mensaje/efecto. |
 
-### 2. Comandos Públicos de Inventario y Crafteo (Para toda la comunidad)
+### 2. Crafteo y Fórmulas (`/craft`)
 | Comando | Permisos | Parámetros | Descripción |
 | :--- | :--- | :--- | :--- |
-| `/inventario` | Público | `personaje` *(str, opc)* | Muestra el inventario interactivo estilo MythOS con botones ◀, ▶ y Close. |
-| `/transferir` | Público | `de_personaje` *(str)*, `a_personaje` *(str)*, `item` *(str)*, `cantidad` *(int)* | Transfiere objetos entre personajes (requiere ser dueño del personaje origen). |
-| `/craftear` | Público | `personaje` *(str)*, `receta` *(str)*, `cantidad` *(int)* | Fabrica objetos consumiendo materiales de la bolsa del personaje. |
-| `/recetas` | Público | *Ninguno* | Explora el catálogo de fórmulas de crafteo e ingredientes necesarios. |
-| `/usar_item` | Público | `personaje` *(str)*, `item` *(str)*, `cantidad` *(int)* | Consume un ítem usable del inventario y ejecuta su mensaje/efecto. |
-| `/importar_tuppers`| Público | `archivo` *(Attachment .json)* | Importa masivamente los personajes de Tupperbox exportados con `tul!export`. |
-| `/guia_personajes` | Público | *Ninguno* | Muestra la guía interactiva paso a paso para sincronizar personajes de Tupperbox. |
-| `/vincular_personaje`| Público | `personaje` *(str)* | Reclama la propiedad de un personaje no registrado para proteger sus ítems. |
-| `/mis_personajes` | Público | *Ninguno* | Lista todos los personajes vinculados a tu cuenta de Discord. |
+| `/craft recetas` | Público | *Ninguno* | Explora el catálogo de fórmulas de crafteo e ingredientes necesarios con paginación. |
+| `/craft fabricar` | Público | `personaje` *(str)*, `receta` *(str)*, `cantidad` *(int)* | Fabrica objetos consumiendo materiales del inventario de tu personaje activo. |
 
-### 3. Comandos Administrativos RPG (Exclusivos para `Bot Admin`)
+### 3. Gestión de Personajes y Tupperbox (`/pj`)
 | Comando | Permisos | Parámetros | Descripción |
 | :--- | :--- | :--- | :--- |
-| `/item_crear` | Admin | `id`, `nombre`, `emoji`, `categoria`, `descripcion`, `es_usable`, `mensaje_uso` | Registra o actualiza un ítem en el catálogo maestro del servidor. |
-| `/item_dar` | Admin | `personaje`, `item`, `cantidad` | Añade stock de un objeto al inventario de un personaje. |
-| `/item_quitar` | Admin | `personaje`, `item`, `cantidad` | Retira unidades de un objeto de la bolsa de un personaje. |
-| `/receta_crear` | Admin | `id`, `nombre`, `resultado_item`, `cantidad`, `ingredientes_texto`, `descripcion` | Crea una receta (ingredientes en formato `id:cant,id2:cant`). |
-| `/receta_borrar` | Admin | `receta` *(str)* | Elimina una fórmula de crafteo del servidor. |
-| `/vincular_admin` | Admin | `personaje`, `usuario` *(Member)* | Reasigna o cambia forzosamente el dueño de un personaje. |
+| `/pj panel` | Público | *Ninguno* | Abre el panel interactivo visual con menús desplegables para activar y desactivar personajes en tu cupo. |
+| `/pj lista` | Público | *Ninguno* | Muestra el resumen de tus personajes activos (cupo máx. 3) y en reserva. |
+| `/pj vincular` | Público | `personaje` *(str)* | Activa un personaje de tu reserva personal para jugar con él. |
+| `/pj desvincular` | Público | `personaje` *(str)* | Pasa un personaje activo a tu reserva para liberar espacio en tu cupo (sin perder ítems). |
+| `/pj importar` | Público | `archivo` *(Attachment .json)* | Importa masivamente tus personajes de Tupperbox (`tul!export`) a tu reserva personal. |
+| `/pj guia` | Público | *Ninguno* | Muestra la guía interactiva paso a paso para sincronizar personajes de Tupperbox. |
+| `/pj editar` | Admin | `personaje` *(str)* | Menú interactivo para personalizar lado (izq/der), color de burbuja y color de texto. |
+
+### 4. Administración RPG (`/admin_rpg` - Exclusivos `Bot Admin`)
+| Comando | Permisos | Parámetros | Descripción |
+| :--- | :--- | :--- | :--- |
+| `/admin_rpg item_crear` | Admin | `id`, `nombre`, `emoji`, `categoria`, `descripcion`, `es_usable`, `mensaje_uso` | Registra o actualiza un ítem en el catálogo maestro del servidor. |
+| `/admin_rpg item_dar` | Admin | `personaje`, `item`, `cantidad` | Añade stock de un objeto al inventario de cualquier personaje. |
+| `/admin_rpg item_quitar` | Admin | `personaje`, `item`, `cantidad` | Retira unidades de un objeto de la bolsa de un personaje. |
+| `/admin_rpg receta_crear` | Admin | `id`, `nombre`, `resultado_item`, `cantidad`, `ingredientes_texto`, `descripcion` | Crea una receta (admite que el ítem producido sea ingrediente para mejoras). |
+| `/admin_rpg receta_borrar` | Admin | `receta` *(str)* | Elimina una fórmula de crafteo del servidor. |
+| `/admin_rpg vincular_admin`| Admin | `personaje`, `usuario` *(Member)* | Reasigna o cambia forzosamente el dueño de un personaje. |
+| `/admin_rpg limite_personajes`| Admin | `cantidad` *(int, 1-25)* | Configura el cupo máximo de personajes activos por usuario para el servidor. |
+
+### 5. Captura de Chat y Servidor (`/chat`)
+| Comando | Permisos | Parámetros | Descripción |
+| :--- | :--- | :--- | :--- |
+| `/chat generar` | Admin | `cantidad` *(int)*, `title` *(str)*, `duracion` *(int)* | Genera la conversación en imágenes segmentadas e inicia el monitor en tiempo real. |
+| `/chat forzar` | Admin | *Ninguno* | Fuerza la actualización manual inmediata del chat generado previamente. |
+| `/chat monitores` | Admin | *Ninguno* | Lista todos los canales que tienen un monitor de auto-actualización activo. |
+| `/chat detener` | Admin | *Ninguno* | Detiene y cancela inmediatamente el monitor activo en el canal actual. |
+| `/chat configuracion` | Admin | `modo` (`TUPPER` / `TODO`) | Define el modo de captura para el servidor actual. |
+| `/chat spam_ping` | Público | `usuario` *(Member)*, `cantidad` *(int)* | Envía menciones continuas espaciadas por 1.5s (máx. 30,000). |
 
 ---
 
