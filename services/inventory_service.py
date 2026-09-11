@@ -29,21 +29,29 @@ def puede_gestionar_personaje(user: discord.Member | discord.User, personaje_inf
     # tuple: (nombre, lado, avatar_url, color, color_texto, owner_id)
     # o tuple de buscar_personaje_por_nombre_db: (tupper_tag, nombre, lado, avatar_url, color, color_texto, owner_id)
     owner_id = None
+    creator_id = None
     if isinstance(personaje_info, dict):
         owner_id = personaje_info.get("owner_id")
+        creator_id = personaje_info.get("creator_id")
     elif isinstance(personaje_info, (tuple, list)):
-        if len(personaje_info) >= 7:
+        if len(personaje_info) >= 8:
+            owner_id = personaje_info[6]
+            creator_id = personaje_info[7]
+        elif len(personaje_info) == 7:
             owner_id = personaje_info[6]
         elif len(personaje_info) == 6:
             owner_id = personaje_info[5]
         else:
             owner_id = personaje_info[-1]
 
+    if owner_id and str(owner_id) == str(user.id):
+        return True, "dueño"
+
+    if not owner_id and creator_id and str(creator_id) == str(user.id):
+        return False, "en_reserva_propia"
+
     if not owner_id:
         return False, "sin_dueño"
-
-    if str(owner_id) == str(user.id):
-        return True, "dueño"
 
     return False, "no_es_dueño"
 
