@@ -221,8 +221,12 @@ async def guardar_personaje(tupper_tag, nombre, lado, avatar_url, color="#FFFFFF
         await db.commit()
     _cache_personajes[tupper_tag] = (nombre, lado, avatar_url, color, color_texto, owner_id, creator_id)
 
-async def actualizar_personaje(tupper_tag, lado=None, color=None, color_texto=None, owner_id=None, creator_id=None):
+async def actualizar_personaje(tupper_tag, nombre=None, avatar_url=None, lado=None, color=None, color_texto=None, owner_id=None, creator_id=None):
     async with aiosqlite.connect(DB_FILE) as db:
+        if nombre is not None:
+            await db.execute('UPDATE Personaje_Tabla SET nombre = ? WHERE tupper_tag = ?', (str(nombre).strip(), tupper_tag))
+        if avatar_url is not None:
+            await db.execute('UPDATE Personaje_Tabla SET avatar_url = ? WHERE tupper_tag = ?', (str(avatar_url).strip(), tupper_tag))
         if lado:
             await db.execute('UPDATE Personaje_Tabla SET lado = ? WHERE tupper_tag = ?', (lado, tupper_tag))
         if color:
@@ -230,9 +234,9 @@ async def actualizar_personaje(tupper_tag, lado=None, color=None, color_texto=No
         if color_texto:
             await db.execute('UPDATE Personaje_Tabla SET color_texto = ? WHERE tupper_tag = ?', (color_texto, tupper_tag))
         if owner_id is not None:
-            await db.execute('UPDATE Personaje_Tabla SET owner_id = ? WHERE tupper_tag = ?', (owner_id, tupper_tag))
+            await db.execute('UPDATE Personaje_Tabla SET owner_id = ? WHERE tupper_tag = ?', (str(owner_id), tupper_tag))
         if creator_id is not None:
-            await db.execute('UPDATE Personaje_Tabla SET creator_id = ? WHERE tupper_tag = ?', (creator_id, tupper_tag))
+            await db.execute('UPDATE Personaje_Tabla SET creator_id = ? WHERE tupper_tag = ?', (str(creator_id), tupper_tag))
         await db.commit()
     _cache_personajes.pop(tupper_tag, None)
 
