@@ -1,0 +1,19 @@
+# fly.toml app configuration file for EriduBot
+app = "eridubot"
+primary_region = "mad"
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  PYTHONUNBUFFERED = "1"
+  AUTO_RELOAD = "false"
+
+[mounts]
+  source = "eridu_data"
+  destination = "/app/data"
+
+[[vm]]
+  cpu_kind = "shared"
+  cpus = 1
+  memory_mb = 512

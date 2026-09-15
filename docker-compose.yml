@@ -1,0 +1,16 @@
+services:
+  eridubot:
+    build: .
+    container_name: eridubot
+    restart: unless-stopped
+    env_file:
+      - .env
+    volumes:
+      # Montaje persistente para que la base de datos SQLite y exportaciones nunca se pierdan
+      - ./data:/app/data
+    environment:
+      - PYTHONUNBUFFERED=1
+      # Descomenta el puerto si deseas activar el healthcheck web en la nube
+      # - PORT=8080
+    # ports:
+    #   - "8080:8080"
