@@ -12,8 +12,12 @@ from core.database import (
     obtener_personajes_reserva,
     obtener_limite_personajes,
     activar_personaje,
-    desactivar_personaje
+    desactivar_personaje,
+    actualizar_personaje,
+    normalizar_texto,
+    listar_todos_personajes
 )
+from services.inventory_service import es_admin
 from services.tupper_service import tupper_matcher
 from ui.views import EditPersonajeView
 from ui.character_views import CharacterPanelView
@@ -22,6 +26,46 @@ from cogs.inventory_commands import (
     autocomplete_mis_personajes_reserva,
     autocomplete_personajes_todos
 )
+
+async def autocomplete_personajes_editables(interaction: discord.Interaction, current: str) -> list[app_commands.Choice[str]]:
+    """Autocompletado para /pj editar: admins ven todos, usuarios normales ven sus activos y reserva."""
+    user_id = str(interaction.user.id)
+    curr_norm = normalizar_texto(current)
+    choices = []
+
+    if es_admin(interaction.user):
+        todos = await listar_todos_personajes()
+        for p in todos:
+            tag, nombre = p[0], p[1]
+            if not curr_norm or curr_norm in normalizar_texto(nombre) or curr_norm in normalizar_texto(tag):
+                choices.append(app_commands.Choice(name=f"🛡️ {nombre}"[:100], value=tag[:100]))
+                if len(choices) >= 25:
+                    break
+        return choices
+
+    # Usuario normal: activos + reserva
+    activos = await obtener_personajes_activos(user_id)
+    reserva = await obtener_personajes_reserva(user_id)
+
+    tags_vistos = set()
+    for p in activos:
+        tag, nombre = p["tupper_tag"], p["nombre"]
+        tags_vistos.add(tag)
+        if not curr_norm or curr_norm in normalizar_texto(nombre) or curr_norm in normalizar_texto(tag):
+            choices.append(app_commands.Choice(name=f"🛡️ {nombre} (Activo)"[:100], value=tag[:100]))
+            if len(choices) >= 25:
+                return choices
+
+    for p in reserva:
+        tag, nombre = p["tupper_tag"], p["nombre"]
+        if tag in tags_vistos:
+            continue
+        if not curr_norm or curr_norm in normalizar_texto(nombre) or curr_norm in normalizar_texto(tag):
+            choices.append(app_commands.Choice(name=f"📦 {nombre} (Reserva)"[:100], value=tag[:100]))
+            if len(choices) >= 25:
+                return choices
+
+    return choices
 
 class CharacterCommands(commands.Cog):
     def __init__(self, bot: commands.Bot):
@@ -316,36 +360,130 @@ class CharacterCommands(commands.Cog):
         await interaction.response.send_message(embed=embed, ephemeral=False)
 
     # ==========================================
-    # /pj editar (Admin)
+    # /pj editar
     # ==========================================
-    @pj_group.command(name="editar", description="Edita visualmente las propiedades de un personaje.")
-    @app_commands.describe(personaje="Nombre o tag del personaje a editar")
-    @app_commands.autocomplete(personaje=autocomplete_personajes_todos)
-    @requiere_admin()
-    async def editar(self, interaction: discord.Interaction, personaje: str):
+    @pj_group.command(name="editar", description="Edita las propiedades de un personaje (nombre, foto, colores, lado).")
+    @app_commands.describe(
+        personaje="Nombre o tag del personaje a editar",
+        nombre="Nuevo nombre visible del personaje (opcional)",
+        avatar="Nueva URL de imagen/avatar (opcional)",
+        color_fondo="Color HEX de la burbuja de chat (#RRGGBB) (opcional)",
+        color_texto="Color HEX del texto (#RRGGBB) (opcional)",
+        lado="Lado de aparición en el chat (opcional)"
+    )
+    @app_commands.choices(lado=[
+        app_commands.Choice(name="Izquierda (I)", value="I"),
+        app_commands.Choice(name="Derecha (D)", value="D")
+    ])
+    @app_commands.autocomplete(personaje=autocomplete_personajes_editables)
+    async def editar(
+        self,
+        interaction: discord.Interaction,
+        personaje: str,
+        nombre: str | None = None,
+        avatar: str | None = None,
+        color_fondo: str | None = None,
+        color_texto: str | None = None,
+        lado: str | None = None
+    ):
         await interaction.response.defer(ephemeral=True)
         p_info = await buscar_personaje_por_nombre_db(personaje)
 
         if not p_info:
             return await interaction.followup.send(f"❌ No se encontró el personaje llamado **{personaje}**.", ephemeral=True)
 
-        tupper_tag, nombre_real, lado, avatar_url, color, color_texto = p_info[:6]
-        view = EditPersonajeView(interaction, tupper_tag, nombre_real, lado, color, color_texto, avatar_url)
+        tupper_tag, nombre_real, lado_actual, avatar_url, color, color_texto_actual, owner_id, creator_id = p_info[:8]
+        user_id_str = str(interaction.user.id)
 
-        try:
-            await view.send_preview()
+        # Verificación de permisos: Admin, o creador/dueño
+        es_admin_user = es_admin(interaction.user)
+        es_propietario = (creator_id == user_id_str) or (owner_id == user_id_str)
+
+        if not (es_admin_user or es_propietario):
+            return await interaction.followup.send(
+                "❌ No tienes permiso para editar este personaje. Solo su creador o un administrador pueden editarlo.",
+                ephemeral=True
+            )
+
+        # Si se pasó algún argumento directamente por comando:
+        tiene_args_directos = any(arg is not None for arg in (nombre, avatar, color_fondo, color_texto, lado))
+
+        if tiene_args_directos:
+            cambios = []
+
+            # Validación de nombre
+            nuevo_nombre = None
+            if nombre is not None:
+                n_clean = nombre.strip()
+                if not n_clean:
+                    return await interaction.followup.send("❌ El nombre no puede estar vacío.", ephemeral=True)
+                nuevo_nombre = n_clean
+                cambios.append(f"• **Nombre:** {nombre_real} ➔ **{nuevo_nombre}**")
+
+            # Validación de avatar
+            nuevo_avatar = None
+            if avatar is not None:
+                a_clean = avatar.strip()
+                if not (a_clean.startswith("http://") or a_clean.startswith("https://")):
+                    return await interaction.followup.send("❌ La URL del avatar debe comenzar con `http://` o `https://`.", ephemeral=True)
+                nuevo_avatar = a_clean
+                cambios.append("• **Avatar:** Actualizado con nueva URL")
+
+            # Validación de color de fondo
+            nuevo_color_fondo = None
+            if color_fondo is not None:
+                c_clean = color_fondo.strip().upper()
+                if not c_clean.startswith("#") or len(c_clean) != 7:
+                    return await interaction.followup.send("❌ Color de fondo inválido. Usa formato HEX como `#RRGGBB`.", ephemeral=True)
+                nuevo_color_fondo = c_clean
+                cambios.append(f"• **Color Fondo:** `{nuevo_color_fondo}`")
+
+            # Validación de color de texto
+            nuevo_color_texto = None
+            if color_texto is not None:
+                ct_clean = color_texto.strip().upper()
+                if not ct_clean.startswith("#") or len(ct_clean) != 7:
+                    return await interaction.followup.send("❌ Color de texto inválido. Usa formato HEX como `#RRGGBB`.", ephemeral=True)
+                nuevo_color_texto = ct_clean
+                cambios.append(f"• **Color Texto:** `{nuevo_color_texto}`")
+
+            # Validación de lado
+            nuevo_lado = None
+            if lado is not None:
+                nuevo_lado = lado
+                lado_nombre = "⬅️ Izquierda (I)" if nuevo_lado == "I" else "➡️ Derecha (D)"
+                cambios.append(f"• **Lado:** {lado_nombre}")
+
+            await actualizar_personaje(
+                tupper_tag,
+                nombre=nuevo_nombre,
+                avatar_url=nuevo_avatar,
+                lado=nuevo_lado,
+                color=nuevo_color_fondo,
+                color_texto=nuevo_color_texto
+            )
+
+            color_embed = 0x2ECC71
+            if nuevo_color_fondo:
+                try:
+                    color_embed = int(nuevo_color_fondo.replace("#", ""), 16)
+                except Exception:
+                    pass
+
             embed = discord.Embed(
-                title="📩 Edición iniciada",
-                description="Revisa tus mensajes privados para continuar con la edición.",
-                color=0x00B0F4
+                title="✅ Personaje Actualizado",
+                description=f"Se han aplicado los siguientes cambios a **{nuevo_nombre or nombre_real}** (`{tupper_tag}`):\n\n" + "\n".join(cambios),
+                color=color_embed
             )
-            await interaction.followup.send(embed=embed, ephemeral=True)
-        except discord.Forbidden:
-            await interaction.followup.send(
-                content="📍 No pude enviarte DM. Aquí tienes la edición.",
-                ephemeral=True,
-                view=view
-            )
+            thumb = nuevo_avatar or avatar_url
+            if thumb and thumb.startswith("http"):
+                embed.set_thumbnail(url=thumb)
+
+            return await interaction.followup.send(embed=embed, ephemeral=True)
+
+        # Si no se pasó ningún argumento directo, abrir menú interactivo
+        view = EditPersonajeView(interaction, tupper_tag, nombre_real, lado_actual, color, color_texto_actual, avatar_url)
+        await view.send_preview()
 
 
 async def setup(bot: commands.Bot):
