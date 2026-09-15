@@ -27,27 +27,27 @@ def construir_embed_tirada(
     motivo: Optional[str] = None,
     personaje_info: Optional[tuple] = None
 ) -> discord.Embed:
-    """Construye un Embed estilizado para la tirada de dados D&D."""
+    """Construye un Embed minimalista y compacto para la tirada de dados D&D."""
     
-    # 1. Determinar color
+    # 1. Color sutil
     if resultado.es_critico:
-        color = 0xF1C40F  # Oro brillante para Nat 20
+        color = 0xF1C40F  # Oro para Nat 20
     elif resultado.es_pifia:
         color = 0xE74C3C  # Rojo para Nat 1
     elif personaje_info and len(personaje_info) >= 5 and personaje_info[4]:
         color = parsear_color_hex(personaje_info[4], 0x5865F2)
     else:
-        color = 0x5865F2  # Blurple Discord
+        color = 0x5865F2
 
-    # 2. Configurar título
+    # 2. Título: motivo o fórmula
     if motivo:
         titulo = f"🎲 {motivo.strip()}"
     else:
-        titulo = f"🎲 Tirada de Dados: `{resultado.formula}`"
+        titulo = f"🎲 Tirada: `{resultado.formula}`"
 
     embed = discord.Embed(title=titulo, color=color)
 
-    # 3. Configurar autor (personaje o usuario)
+    # 3. Autor minimalista (PJ o Usuario)
     if personaje_info:
         nombre_pj = personaje_info[1]
         avatar_pj = personaje_info[3] if len(personaje_info) >= 4 and personaje_info[3] else None
@@ -58,42 +58,24 @@ def construir_embed_tirada(
             icon_url=interaction.user.display_avatar.url
         )
 
-    # 4. Banner destacado si hubo Nat 20 o Nat 1
-    if resultado.mensaje_destacado:
-        embed.description = f"### {resultado.mensaje_destacado}"
-
-    # 5. Modo de tirada (si no fue normal)
+    # 4. Cuerpo compacto
+    lineas = []
+    tag_modo = ""
     if resultado.modo == "ventaja":
-        embed.add_field(name="⚖️ Modalidad", value="🟢 **Ventaja** (Se tomó el mayor)", inline=True)
+        tag_modo = " `[Ventaja]`"
     elif resultado.modo == "desventaja":
-        embed.add_field(name="⚖️ Modalidad", value="🔴 **Desventaja** (Se tomó el menor)", inline=True)
+        tag_modo = " `[Desventaja]`"
 
-    # 6. Desglose detallado
-    embed.add_field(
-        name="📊 Desglose de Dados",
-        value=f"`{resultado.desglose}`",
-        inline=False
-    )
+    lineas.append(f"**Dados:** `{resultado.desglose}`{tag_modo}")
 
-    # 7. Total final destacado
-    total_str = f"# 🎯 Total: {resultado.total}"
+    res_str = f"**Resultado:** **`{resultado.total}`**"
     if resultado.es_critico:
-        total_str += " ✨"
+        res_str += " ✨ *(¡Nat 20!)*"
     elif resultado.es_pifia:
-        total_str += " 💀"
+        res_str += " 💀 *(¡Nat 1!)*"
+    lineas.append(res_str)
 
-    embed.add_field(
-        name="🏆 Resultado",
-        value=total_str,
-        inline=False
-    )
-
-    # 8. Pie de página
-    if personaje_info:
-        embed.set_footer(text=f"Personaje: {personaje_info[1]} • Tirado por @{interaction.user.display_name} • D&D 5e")
-    else:
-        embed.set_footer(text=f"Tirado por @{interaction.user.display_name} • D&D 5e")
-
+    embed.description = "\n".join(lineas)
     return embed
 
 class DiceCommands(commands.Cog):
