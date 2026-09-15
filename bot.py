@@ -7,6 +7,8 @@ from core.config import Config
 from core.database import inicializar_base
 from renderer.captura import iniciar_navegador, cerrar_navegador
 from services.monitor_service import monitor_manager
+from services.hot_reload_service import hot_reload_manager
+from services.inventory_service import es_admin
 
 logging.basicConfig(
     level=logging.INFO,
@@ -49,19 +51,75 @@ class EriduBot(commands.Bot):
 
         # 4. Sincronizar comandos Slash con Discord
         logging.info("[Tree] Sincronizando comandos Slash...")
-        await self.tree.sync()
-        logging.info("[Tree] Comandos Slash sincronizados.")
+        try:
+            await self.tree.sync()
+            logging.info("[Tree] Comandos Slash sincronizados.")
+        except Exception as e:
+            logging.error(f"[Tree] Error sincronizando comandos Slash: {e}")
+
+        # 5. Gestor global de errores para App Commands
+        async def on_tree_error(interaction: discord.Interaction, error: discord.app_commands.AppCommandError):
+            cmd_name = interaction.command.name if interaction.command else "desconocido"
+            logging.error(f"[Tree Error] En /{cmd_name}: {error}", exc_info=error)
+            msg = "⚠️ Ha ocurrido un error inesperado al ejecutar esta acción. Se ha registrado en la consola para su revisión."
+            try:
+                if not interaction.response.is_done():
+                    await interaction.response.send_message(msg, ephemeral=True)
+                else:
+                    await interaction.followup.send(msg, ephemeral=True)
+            except Exception:
+                pass
+
+        self.tree.on_error = on_tree_error
+
+        # 6. Inicializar Hot-Reloading en desarrollo
+        if Config.AUTO_RELOAD:
+            hot_reload_manager.set_bot(self)
+            hot_reload_manager.start()
 
     async def on_ready(self):
         logging.info(f"✅ Bot listo como {self.user} (ID: {self.user.id})")
 
     async def close(self):
         logging.info("Deteniendo el bot y liberando recursos...")
+        hot_reload_manager.stop()
         monitor_manager.detener_todos()
         await cerrar_navegador()
         await super().close()
 
 bot = EriduBot()
+
+# ========================================================
+# COMANDOS CON PREFIJO PARA DESARROLLADORES (!reload, !sync)
+# ========================================================
+@bot.command(name="reload", hidden=True)
+async def cmd_reload(ctx: commands.Context, modulo: str = "todos"):
+    """Comando de desarrollo para recargar módulos en caliente sin reiniciar el bot."""
+    if not es_admin(ctx.author):
+        return await ctx.reply("❌ Solo los administradores pueden recargar módulos.", mention_author=False)
+
+    if modulo.lower() in ("todos", "all"):
+        ok, exitos, errores = await hot_reload_manager.reload_all()
+        if ok:
+            await ctx.reply(f"✅ Se han recargado **{len(exitos)}** extensiones exitosamente.", mention_author=False)
+        else:
+            err_str = "\n".join(errores[:5])
+            await ctx.reply(f"⚠️ Recarga completada con errores ({len(exitos)} éxitos, {len(errores)} fallos):\n```{err_str}```", mention_author=False)
+    else:
+        ok, msg = await hot_reload_manager.reload_cog(modulo)
+        emoji = "✅" if ok else "❌"
+        await ctx.reply(f"{emoji} {msg}", mention_author=False)
+
+@bot.command(name="sync", hidden=True)
+async def cmd_sync(ctx: commands.Context, servidor: str = "este"):
+    """Comando de desarrollo para forzar la sincronización del árbol de comandos."""
+    if not es_admin(ctx.author):
+        return await ctx.reply("❌ Solo los administradores pueden sincronizar comandos.", mention_author=False)
+
+    guild_id = ctx.guild.id if servidor.lower() in ("este", "guild", "server") else None
+    ok, msg = await hot_reload_manager.sync_tree(guild_id)
+    emoji = "✅" if ok else "❌"
+    await ctx.reply(f"{emoji} {msg}", mention_author=False)
 
 if __name__ == "__main__":
     bot.run(Config.DISCORD_TOKEN)

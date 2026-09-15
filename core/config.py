@@ -17,6 +17,7 @@ class Config:
 
     ROL_ADMIN = os.getenv("ROL_ADMIN", "Bot Admin")
     TUPPER_WEBHOOK_ID = os.getenv("TUPPER_WEBHOOK_ID", "").strip()
+    AUTO_RELOAD = os.getenv("AUTO_RELOAD", "true").lower() in ("true", "1", "yes")
 
     # --- Persistencia y Rutas en la Nube ---
     _raw_db = os.getenv("DATABASE_PATH", os.path.join("data", "eridubot.sqlite"))
