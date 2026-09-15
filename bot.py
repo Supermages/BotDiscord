@@ -31,6 +31,7 @@ class EriduBot(commands.Bot):
         intents.guilds = True
         intents.members = True
         super().__init__(command_prefix="!", intents=intents)
+        self._web_runner = None
 
     async def setup_hook(self):
         # 1. Inicializar la base de datos y sus índices
@@ -77,11 +78,35 @@ class EriduBot(commands.Bot):
             hot_reload_manager.set_bot(self)
             hot_reload_manager.start()
 
+        # 7. Servidor web ligero para Healthchecks en la nube (Render, Koyeb, Fly, etc.)
+        if Config.PORT:
+            try:
+                from aiohttp import web
+                app = web.Application()
+                async def handle_health(request):
+                    return web.json_response({
+                        "status": "online",
+                        "bot": str(self.user),
+                        "cogs": list(self.extensions.keys()),
+                        "ping_ms": round(self.latency * 1000, 2)
+                    })
+                app.router.add_get("/", handle_health)
+                app.router.add_get("/health", handle_health)
+                self._web_runner = web.AppRunner(app)
+                await self._web_runner.setup()
+                site = web.TCPSite(self._web_runner, "0.0.0.0", int(Config.PORT))
+                await site.start()
+                logging.info(f"[Web] Healthcheck activo en http://0.0.0.0:{Config.PORT}")
+            except Exception as e:
+                logging.warning(f"[Web] No se pudo iniciar el healthcheck web: {e}")
+
     async def on_ready(self):
         logging.info(f"✅ Bot listo como {self.user} (ID: {self.user.id})")
 
     async def close(self):
         logging.info("Deteniendo el bot y liberando recursos...")
+        if self._web_runner:
+            await self._web_runner.cleanup()
         hot_reload_manager.stop()
         monitor_manager.detener_todos()
         await cerrar_navegador()

@@ -6,10 +6,13 @@ ENV PYTHONUNBUFFERED=1
 
 WORKDIR /app
 
-# Instalar dependencias básicas del sistema requeridas por Playwright y compiladores
+# Instalar dependencias básicas del sistema requeridas por Playwright, fuentes y compiladores
 RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     git \
+    build-essential \
+    fonts-liberation \
+    fonts-noto-color-emoji \
     && rm -rf /var/lib/apt/lists/*
 
 # Copiar requirements e instalar dependencias de Python
