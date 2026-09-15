@@ -5,7 +5,7 @@ from discord import app_commands
 from discord.ext import commands
 
 from services.dice_service import ejecutar_tirada, TiradaResultado
-from core.database import buscar_personaje_por_nombre_db
+from core.database import buscar_personaje_por_nombre_db, obtener_personajes_activos
 from cogs.inventory_commands import autocomplete_mis_personajes_activos
 from services.inventory_service import puede_gestionar_personaje
 
@@ -51,6 +51,8 @@ def construir_embed_tirada(
     if personaje_info:
         nombre_pj = personaje_info[1]
         avatar_pj = personaje_info[3] if len(personaje_info) >= 4 and personaje_info[3] else None
+        if not avatar_pj or "embed/avatars" in str(avatar_pj):
+            avatar_pj = interaction.user.display_avatar.url
         embed.set_author(name=f"🛡️ {nombre_pj}", icon_url=avatar_pj)
     else:
         embed.set_author(
@@ -58,17 +60,17 @@ def construir_embed_tirada(
             icon_url=interaction.user.display_avatar.url
         )
 
-    # 4. Cuerpo compacto
+    # 4. Cuerpo compacto sin backticks que impidan el renderizado de markdown
     lineas = []
     tag_modo = ""
     if resultado.modo == "ventaja":
-        tag_modo = " `[Ventaja]`"
+        tag_modo = " *(Ventaja)*"
     elif resultado.modo == "desventaja":
-        tag_modo = " `[Desventaja]`"
+        tag_modo = " *(Desventaja)*"
 
-    lineas.append(f"**Dados:** `{resultado.desglose}`{tag_modo}")
+    lineas.append(f"**Dados:** {resultado.desglose}{tag_modo}")
 
-    res_str = f"**Resultado:** **`{resultado.total}`**"
+    res_str = f"**Resultado:** **{resultado.total}**"
     if resultado.es_critico:
         res_str += " ✨ *(¡Nat 20!)*"
     elif resultado.es_pifia:
@@ -94,7 +96,7 @@ class DiceCommands(commands.Cog):
         secreto: bool
     ):
         p_info = None
-        # Si se seleccionó un personaje
+        # 1. Si se seleccionó un personaje explícitamente
         if personaje and personaje != "__sin_activos__":
             p_info = await buscar_personaje_por_nombre_db(personaje)
             if not p_info:
@@ -114,6 +116,11 @@ class DiceCommands(commands.Cog):
                     f"⛔ No tienes permiso para realizar tiradas con **{p_info[1]}**.",
                     ephemeral=True
                 )
+        elif not personaje or personaje == "__sin_activos__":
+            # Si no especificó personaje, auto-detectar si tiene un personaje activo
+            activos = await obtener_personajes_activos(str(interaction.user.id))
+            if activos:
+                p_info = await buscar_personaje_por_nombre_db(activos[0]["tupper_tag"])
 
         try:
             resultado = ejecutar_tirada(formula=tirada, modo=modo)

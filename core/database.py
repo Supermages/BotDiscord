@@ -206,7 +206,13 @@ async def guardar_personaje(tupper_tag, nombre, lado, avatar_url, color="#FFFFFF
             ON CONFLICT(tupper_tag) DO UPDATE SET
                 nombre=excluded.nombre,
                 lado=excluded.lado,
-                avatar_url=excluded.avatar_url,
+                avatar_url=CASE 
+                    WHEN excluded.avatar_url IS NOT NULL 
+                         AND excluded.avatar_url != '' 
+                         AND excluded.avatar_url NOT LIKE '%embed/avatars/%' 
+                    THEN excluded.avatar_url 
+                    ELSE COALESCE(Personaje_Tabla.avatar_url, excluded.avatar_url) 
+                END,
                 color=excluded.color,
                 color_texto=excluded.color_texto,
                 owner_id=COALESCE(Personaje_Tabla.owner_id, excluded.owner_id),
@@ -296,7 +302,7 @@ async def obtener_personajes_reserva(user_id: str) -> list[dict]:
         async with db.execute(
             '''SELECT tupper_tag, nombre, lado, avatar_url, color, color_texto, owner_id, creator_id 
                FROM Personaje_Tabla 
-               WHERE (creator_id = ? OR (creator_id IS NULL AND owner_id IS NULL)) AND (owner_id IS NULL OR owner_id = '')
+               WHERE creator_id = ? AND (owner_id IS NULL OR owner_id = '')
                ORDER BY nombre ASC''', 
             (str(user_id),)
         ) as cursor:
@@ -336,8 +342,8 @@ async def activar_personaje(user_id: str, tupper_tag: str, limite: int = 3) -> t
         if current_owner and str(current_owner) != owner_str:
             return False, f"El personaje ya está activo a nombre de otro usuario (<@{current_owner}>).", None
 
-        if current_creator and str(current_creator) != owner_str:
-            return False, f"Este personaje pertenece a la reserva de otro usuario.", None
+        if not current_creator or str(current_creator) != owner_str:
+            return False, "Este personaje no pertenece a tu reserva personal. Puedes importarlo con `/pj importar` o crearlo con Tupperbox.", None
 
         # 3. Activar
         await db.execute(
