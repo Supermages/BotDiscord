@@ -23,7 +23,11 @@ class ChatCommands(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
 
-    chat_group = app_commands.Group(name="chat", description="Comandos de captura y renderizado de chat")
+    chat_group = app_commands.Group(
+        name="chat", 
+        description="Comandos de captura y renderizado de chat",
+        default_permissions=discord.Permissions(administrator=True)
+    )
 
     # ---------------------------------------------------------
     # /chat generar
