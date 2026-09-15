@@ -11,21 +11,16 @@ logger = logging.getLogger(__name__)
 
 def parsear_tirada_dados(expr: str) -> int:
     """
-    Evalúa expresiones sencillas de dados como '1d20+5', '2d6', 'd100', '1d20-2'.
+    Evalúa expresiones de dados como '1d20+5', '2d6', 'd100', '1d20-2', '2d6+1d4+3'.
     """
-    clean = str(expr).replace(" ", "").lower()
-    match = re.match(r'^(\d*)d(\d+)([+-]\d+)?$', clean)
-    if not match:
+    try:
+        from services.dice_service import ejecutar_tirada
+        return ejecutar_tirada(str(expr)).total
+    except Exception:
         try:
             return int(expr)
         except ValueError:
             return 0
-    num_dados = int(match.group(1)) if match.group(1) else 1
-    caras = int(match.group(2))
-    modificador = int(match.group(3)) if match.group(3) else 0
-
-    total = sum(random.randint(1, caras) for _ in range(num_dados)) + modificador
-    return total
 
 class LuaEngine:
     def __init__(self, db_path: str = None):
