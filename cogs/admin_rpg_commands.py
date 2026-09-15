@@ -246,7 +246,11 @@ class AdminRPGCommands(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
 
-    admin_rpg_group = app_commands.Group(name="admin_rpg", description="Comandos de administración del sistema RPG")
+    admin_rpg_group = app_commands.Group(
+        name="admin_rpg", 
+        description="Comandos de administración del sistema RPG",
+        default_permissions=discord.Permissions(administrator=True)
+    )
 
     # ---------------------------------------------------------
     # /admin_rpg item_crear

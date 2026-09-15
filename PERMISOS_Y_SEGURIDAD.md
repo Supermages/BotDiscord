@@ -103,16 +103,19 @@ Estos comandos están protegidos por el decorador `@requiere_admin()` o comproba
 
 ---
 
-### 📸 Captura y Monitoreo de Chat (`/chat`)
+### 📸 Captura y Monitoreo de Chat (`/chat`) *(100% Restringido a Administradores)*
+
+> [!IMPORTANT]
+> El grupo completo `/chat` tiene configurado `default_permissions=discord.Permissions(administrator=True)`. Además, **todos y cada uno de sus comandos** cuentan con el decorador `@requiere_admin()`, impidiendo que cualquier usuario sin el rol `Bot Admin` pueda ejecutarlos o verlos en Discord.
 
 | Comando | Parámetros | Propósito |
 | :--- | :--- | :--- |
 | `/chat generar` | `[cantidad]`, `[title]`, `[duracion]` | Captura los mensajes del canal y genera imágenes segmentadas con Playwright Chromium. |
-| `/chat actualizar` | `message_id` | Fuerza una actualización manual de una captura existente en el canal. |
+| `/chat forzar` | Ninguno | Fuerza la actualización inmediata de la captura activa del canal sin esperar al intervalo del monitor. |
 | `/chat monitores` | Ninguno | Lista todos los canales del servidor que tienen monitores automáticos activos. |
 | `/chat detener` | Ninguno | Cancela el monitor de auto-actualización del canal actual. |
 | `/chat configuracion`| `modo` | Alterna entre capturar únicamente mensajes de Tupperbox (`TUPPER`) o todo el chat (`TODO`). |
-| `/chat spam_ping` | `usuario`, `cantidad` | Comando protegido para enviar menciones consecutivas con intervalo seguro. |
+| `/chat spam_ping` | `usuario`, `cantidad` | Comando protegido para enviar menciones consecutivas con intervalo seguro de 1.5s. |
 
 ---
 
