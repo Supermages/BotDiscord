@@ -116,7 +116,7 @@ def ejecutar_tirada(formula: str = "1d20", modo: str = "normal") -> TiradaResult
                     es_pifia = True
 
             # Formato de ventaja/desventaja en desglose
-            str_dados = f"d{g.caras}(~~[{descartado}]~~, **[{elegido}]**)"
+            str_dados = f"d{g.caras} (~~[{descartado}]~~, **[{elegido}]**)"
             if g.signo == -1:
                 partes_desglose.append(f"- {str_dados}")
             else:
@@ -138,7 +138,8 @@ def ejecutar_tirada(formula: str = "1d20", modo: str = "normal") -> TiradaResult
                 elif tiradas[0] == 1:
                     es_pifia = True
 
-            str_dados = f"{g.cantidad}d{g.caras} [{', '.join(str(x) for x in tiradas)}]"
+            dados_formateados = ", ".join(f"**[{x}]**" for x in tiradas)
+            str_dados = f"{g.cantidad}d{g.caras} ({dados_formateados})"
             if g.signo == -1:
                 partes_desglose.append(f"- {str_dados}")
             else:

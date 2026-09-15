@@ -94,7 +94,7 @@ async def actualizar_chat_logica(channel: discord.TextChannel, chat_json: dict, 
         if procesar and contenido_limpio not in mensajes_guardados_contenido:
             personaje_nombre = msg.author.display_name
             tupper_tag = re.sub(r'[^a-zA-Z0-9_]', '_', str(msg.author.name))
-            avatar_url = str(msg.author.avatar.url) if msg.author.avatar else "https://cdn.discordapp.com/embed/avatars/0.png"
+            avatar_url = str(msg.author.display_avatar.url) if msg.author.display_avatar else ""
 
             # Buscar o autoregistrar personaje en DB
             personaje = await obtener_personaje(tupper_tag)
@@ -102,6 +102,8 @@ async def actualizar_chat_logica(channel: discord.TextChannel, chat_json: dict, 
                 lado = "I"
                 color, color_texto = "#FFFFFF", "#000000"
                 await guardar_personaje(tupper_tag, personaje_nombre, lado, avatar_url, color, color_texto)
+            elif avatar_url and "embed/avatars" not in avatar_url and (not personaje[2] or "embed/avatars" in str(personaje[2])):
+                await guardar_personaje(tupper_tag, personaje_nombre, personaje[1], avatar_url, personaje[3], personaje[4])
 
             adjuntos = procesar_adjuntos_mensaje(msg)
 
