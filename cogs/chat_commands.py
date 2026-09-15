@@ -292,6 +292,7 @@ class ChatCommands(commands.Cog):
         usuario="El usuario al que quieres mencionar", 
         cantidad="Número de veces a enviar el ping (máximo 30000)"
     )
+    @requiere_admin()
     async def spam_ping(self, interaction: discord.Interaction, usuario: discord.Member, cantidad: int):
         limite_maximo = 30000
         if cantidad > limite_maximo:
