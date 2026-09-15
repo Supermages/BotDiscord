@@ -1,19 +1,23 @@
-# fly.toml app configuration file for EriduBot
-app = "eridubot"
-primary_region = "mad"
+# fly.toml app configuration file generated for eridubot on 2026-09-15T23:12:21+02:00
+#
+# See https://fly.io/docs/reference/configuration/ for information about how to use this file.
+#
+
+app = 'eridubot'
+primary_region = 'cdg'
 
 [build]
-  dockerfile = "Dockerfile"
+  dockerfile = 'Dockerfile'
 
 [env]
-  PYTHONUNBUFFERED = "1"
-  AUTO_RELOAD = "false"
+  AUTO_RELOAD = 'false'
+  PYTHONUNBUFFERED = '1'
 
-[mounts]
-  source = "eridu_data"
-  destination = "/app/data"
+[[mounts]]
+  source = 'eridu_data'
+  destination = '/app/data'
 
 [[vm]]
-  cpu_kind = "shared"
+  memory = '512mb'
   cpus = 1
   memory_mb = 512
