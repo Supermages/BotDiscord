@@ -31,6 +31,7 @@ from cogs.inventory_commands import (
 )
 from cogs.crafting_commands import autocomplete_recetas
 from services.lua_service import lua_engine
+from services.hot_reload_service import hot_reload_manager
 
 async def autocomplete_scripts(interaction: discord.Interaction, current: str) -> list[app_commands.Choice[str]]:
     scripts = await listar_scripts()
@@ -56,6 +57,19 @@ async def autocomplete_scripts_asignar(interaction: discord.Interaction, current
             choices.append(app_commands.Choice(name=label[:100], value=s['script_id']))
         if len(choices) >= 25:
             break
+    return choices
+
+async def autocomplete_cogs_recargables(interaction: discord.Interaction, current: str) -> list[app_commands.Choice[str]]:
+    curr_norm = current.lower().strip()
+    choices = [app_commands.Choice(name="🔄 Todos los Cogs y Módulos", value="todos")]
+    bot = interaction.client
+    for ext in list(bot.extensions.keys()):
+        short_name = ext.replace("cogs.", "")
+        display = f"📦 {short_name} ({ext})"
+        if not curr_norm or curr_norm in short_name.lower() or curr_norm in ext.lower():
+            choices.append(app_commands.Choice(name=display[:100], value=ext[:100]))
+            if len(choices) >= 25:
+                break
     return choices
 
 class SharedScriptModal(discord.ui.Modal):
@@ -877,6 +891,42 @@ class AdminRPGCommands(commands.Cog):
             await interaction.response.send_message(embed=embed, ephemeral=True)
         else:
             await interaction.response.send_message(f"❌ Error al eliminar el script `{script}`.", ephemeral=True)
+
+    # ---------------------------------------------------------
+    # /admin_rpg recargar
+    # ---------------------------------------------------------
+    @admin_rpg_group.command(name="recargar", description="Recarga módulos y Cogs en caliente sin reiniciar el bot.")
+    @app_commands.describe(
+        modulo="Extensión o módulo a recargar (o 'todos')",
+        sincronizar_arbol="Sincronizar el árbol de comandos Slash con Discord (por defecto: False)"
+    )
+    @app_commands.autocomplete(modulo=autocomplete_cogs_recargables)
+    @requiere_admin()
+    async def recargar(self, interaction: discord.Interaction, modulo: str = "todos", sincronizar_arbol: bool = False):
+        await interaction.response.defer(ephemeral=True)
+
+        if modulo.lower() in ("todos", "all"):
+            ok, exitos, errores = await hot_reload_manager.reload_all()
+            embed = discord.Embed(
+                title="🔄 Recarga en Caliente Completada" if ok else "⚠️ Recarga Parcial con Advertencias",
+                color=0x2ECC71 if ok else 0xE67E22
+            )
+            embed.add_field(name=f"✅ Exitosas ({len(exitos)})", value="\n".join([f"• `{e}`" for e in exitos]) or "*Ninguna*", inline=False)
+            if errores:
+                embed.add_field(name=f"❌ Errores ({len(errores)})", value="\n".join([f"• {e}" for e in errores[:5]])[:1024], inline=False)
+        else:
+            ok, msg = await hot_reload_manager.reload_cog(modulo)
+            embed = discord.Embed(
+                title="✅ Módulo Recargado" if ok else "❌ Error al Recargar",
+                description=msg,
+                color=0x2ECC71 if ok else 0xE74C3C
+            )
+
+        if sincronizar_arbol:
+            s_ok, s_msg = await hot_reload_manager.sync_tree(interaction.guild_id)
+            embed.add_field(name="⚡ Sincronización de Comandos", value=f"{'✅' if s_ok else '❌'} {s_msg}", inline=False)
+
+        await interaction.followup.send(embed=embed, ephemeral=True)
 
 
 async def setup(bot: commands.Bot):
