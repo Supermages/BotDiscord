@@ -18,7 +18,8 @@ EXTENSIONES = [
     "cogs.character_commands",
     "cogs.inventory_commands",
     "cogs.crafting_commands",
-    "cogs.admin_rpg_commands"
+    "cogs.admin_rpg_commands",
+    "cogs.dice_commands"
 ]
 
 class EriduBot(commands.Bot):
