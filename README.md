@@ -1,44 +1,39 @@
-# 🤖 EriduBot - Renderizador y Exportador Visual de Chats de Discord
+# 🤖 EriduBot - Bot de Rol, Renderizador Visual y Sistema RPG para Discord
 
-**EriduBot** es un bot avanzado de Discord diseñado para capturar, almacenar y renderizar conversaciones de texto en elegantes imágenes estilo mensajería/novela visual. Está especialmente optimizado para servidores de rol que utilizan **Tupperbox**, así como para chats convencionales de usuarios.
-
-El bot transforma los mensajes de Discord en una interfaz web personalizada (HTML/CSS/JS) y genera capturas PNG de alta calidad sin fondo mediante un navegador headless (**Playwright / Chromium**), dividiendo automáticamente conversaciones largas en imágenes segmentadas y permitiendo el monitoreo en tiempo real del canal.
+**EriduBot** es un bot integral y modular para Discord diseñado para comunidades de rol y servidores interactivos. Integra un motor de renderizado de conversaciones en imágenes visuales de alta fidelidad, un sistema completo de inventarios, economía y crafteo al estilo MythOS, un sistema de tiradas de dados D&D 5e con ventaja/desventaja y críticos, soporte nativo para **Tupperbox**, y una arquitectura optimizada para alta concurrencia.
 
 ---
 
 ## 🌟 Características Principales
 
-- 📸 **Renderizado Web de Alta Calidad**:
-  - Utiliza **Playwright (Chromium Headless)** con escala de dispositivo `2x` para producir capturas nítidas y limpias.
-  - Recorte automático exacto del contenedor de chat (`.chat-container`) sin espacios sobrantes ni fondos no deseados.
-  - Tipografía personalizada integrada (*HongMengTi*).
+### 📸 1. Renderizado Visual y Captura de Chats
+* **Motor Playwright (Chromium Headless)** con escala de dispositivo `2x` para capturas nítidas y sin fondo.
+* **Evaluación Atómica por Lotes (Batch IPC)**: Inyección instantánea de mensajes en Chromium en una sola llamada, reduciendo el tiempo de renderizado a ~1.2s en chats extensos.
+* **Segmentación Adaptativa**: Algoritmo inteligente que pondera texto largo y adjuntos para dividir conversaciones en imágenes secuenciales legibles.
+* **Monitoreo en Tiempo Real**: `/chat generar` con parámetro de duración para vigilar un canal y actualizar automáticamente las imágenes a medida que los personajes rolean.
+* **Modos de Captura**: Modo Tupperbox (`TUPPER`) con deducción de autoría en memoria (`TupperMatchEngine`) y modo general (`TODO`).
 
-- 🎭 **Modos de Captura Flexibles**:
-  - **Modo Tupperbox (`TUPPER`)**: Detecta automáticamente el Webhook de Tupperbox en el servidor analizando el historial y filtra únicamente los mensajes emitidos por personajes.
-  - **Modo General (`TODO`)**: Captura las intervenciones de todos los usuarios y bots (excluyendo comandos y mensajes del propio bot).
+### 🎒 2. Sistema de Inventario y Crafteo (Estilo MythOS)
+* **Inventario Interactivo (`/inv ver`)**: Panel con paginación interactiva (`◀`, `▶`), visualización de cantidad, categoría y emojis de ítems.
+* **Transferencias Seguras (`/inv transferir`)**: Traspaso atómico de objetos entre personajes con confirmación interactiva en dos pasos.
+* **Consumo de Ítems (`/inv usar`)**: Uso de consumibles con control de stock y soporte para scripts de efecto en Lua.
+* **Fórmulas y Crafteo (`/craft`)**: Libro de recetas paginado (`/craft recetas`) y fabricación con deducción automática de materiales (`/craft fabricar`).
 
-- 🧩 **Segmentación Inteligente por Lotes**:
-  - Divide conversaciones extensas en imágenes secuenciales (partes) según el límite configurado (`MENSAJES_POR_IMAGEN`), evitando imágenes desproporcionadamente largas o fallos por límites de tamaño en Discord.
+### 🎲 3. Sistema de Dados D&D 5e (`/roll` y `/dado`)
+* **Expresiones Complejas**: Soporta dados simples (`1d20`), con modificadores (`1d20+5`, `1d20-2`) y fórmulas compuestas (`2d6 + 1d4 + 3`).
+* **Ventaja y Desventaja**: Lanza automáticamente dos dados, calcula el mayor o menor y muestra el dado descartado tachado.
+* **Críticos y Pifias**: Detección automática de **Nat 20** (Éxito Crítico) con banner dorado y **Nat 1** (Pifia) con banner rojo.
+* **Identidad de Personaje**: Parámetro opcional para lanzar dados a nombre de un personaje activo, adoptando su avatar y color personalizado.
 
-- 🔄 **Monitoreo Dinámico en Tiempo Real**:
-  - Comando `/generarchat` con parámetro de duración (minutos) que inicia un monitor en segundo plano.
-  - Cada minuto verifica si se han enviado nuevos mensajes al canal y actualiza el mensaje de Discord con las imágenes regeneradas.
-  - Prevención automática de conflictos de monitores concurrentes por canal.
+### 🎭 4. Gestión de Personajes y Tupperbox (`/pj`)
+* **Panel Visual (`/pj panel`)**: Activación y desactivación de personajes mediante menús desplegables para gestionar cupos de rol (por defecto 3 por jugador, configurable por servidor).
+* **Editor Interactivo (`/pj editar`)**: Ventanas modales para personalizar nombre, avatar, lado de mensaje (izquierda/derecha) y colores en formato HEX (`#RRGGBB`).
+* **Importación Masiva (`/pj importar`)**: Carga directa de copias de seguridad de Tupperbox (`tul!export.json`) a la reserva personal.
 
-- 🎨 **Personalización Visual Interactiva**:
-  - **Asignación de Lado**: Botones interactivos (`LadoView`) en Discord para definir si un personaje habla desde la izquierda o la derecha.
-  - **Editor de Personajes (`/editarpersonaje`)**: Interfaz interactiva por DM o canal (`EditPersonajeView`) con previsualización en tiempo real. Permite alternar lado y cambiar el color de fondo y color de texto mediante ventanas modales (`ColorModal`) con códigos HEX (`#RRGGBB`).
-
-- 📎 **Soporte Multimedia y Enriquecido**:
-  - **Emojis de Discord**: Transforma emojis personalizados (`<:nombre:id>` y `<a:nombre:id>`) en imágenes en línea dentro de las burbujas.
-  - **Adjuntos e Imágenes**: Renderiza fotos, imágenes incrustadas y enlaces GIF (Tenor/Giphy).
-  - **Stickers**: Soporte para stickers de Discord (PNG/APNG).
-  - **Archivos Descargables**: Presentación de archivos (PDF, ZIP, etc.) en tarjetas visuales con enlaces de descarga.
-  - **Limpieza de Formato**: Limpieza de sintaxis Markdown de Discord (bloques de código, negrita, cursiva, tachado, spoilers).
-
-- ⚡ **Herramientas de Moderación/Utilidad**:
-  - Comando `/spam_ping` con control de intervalo asíncrono (1.5s por mensaje) y validación de seguridad (hasta 30,000 menciones) para evitar bloqueos por *Rate Limit* de la API de Discord.
-  - Decorador `@requiere_admin()` que restringe comandos críticos al rol administrativo definido.
+### ⚡ 5. Rendimiento, Robustez y Recarga en Caliente
+* **SQLite Modo WAL**: `PRAGMA journal_mode=WAL` y `synchronous=NORMAL` para permitir múltiples lecturas simultáneas sin bloqueos de base de datos (`database is locked`).
+* **Timeouts de UI Seguros**: Todas las vistas (`discord.ui.View`) implementan `on_timeout()` para deshabilitar botones y selects al expirar la sesión, evitando errores de interacción en Discord.
+* **Hot Reload con Validación AST**: Monitor en segundo plano (`HotReloadManager`) que recarga módulos modificados sin reiniciar el bot, filtrando archivos con errores de sintaxis antes de ejecutarlos.
 
 ---
 
@@ -46,61 +41,61 @@ El bot transforma los mensajes de Discord en una interfaz web personalizada (HTM
 
 ```plaintext
 BotDiscord/
-├── bot.py                  # Punto de entrada principal y registro de extensiones (~65 líneas)
-├── requirements.txt        # Dependencias de Python requeridas
-├── Dockerfile              # Imagen para despliegue contenerizado en la nube
-├── .dockerignore           # Exclusiones para el build de Docker
-├── .env.example            # Plantilla de variables de entorno (con soporte DATABASE_PATH)
-├── .gitignore              # Archivos y carpetas ignorados por git
-├── README.md               # Documentación general del proyecto
+├── bot.py                  # Punto de entrada y cargador de extensiones
+├── requirements.txt        # Dependencias de Python del proyecto
+├── Dockerfile              # Contenedor universal para despliegue
+├── docker-compose.yml      # Orquestación de contenedor con volumen persistente
+├── DEPLOYMENT.md           # Guía completa de despliegue en producción
+├── PERMISOS_Y_SEGURIDAD.md # Matriz de permisos y políticas de seguridad
+├── .env.example            # Plantilla de variables de entorno
 │
 ├── core/
-│   ├── __init__.py
-│   ├── config.py           # Configuración centralizada y validación de variables de entorno
-│   ├── database.py         # Conexión asíncrona a SQLite (aiosqlite), índices y caché en RAM
-│   ├── formatters.py       # Limpieza de Markdown y formateo de emojis de Discord a <img>
+│   ├── config.py           # Configuración centralizada y rutas
+│   ├── database.py         # Persistencia asíncrona SQLite con modo WAL y caché
+│   ├── formatters.py       # Limpieza de Markdown y formateo de emojis a <img>
 │   └── permissions.py      # Decorador @requiere_admin() para control de acceso
 │
 ├── services/
-│   ├── __init__.py
-│   ├── tupper_service.py   # Detección y almacenamiento de Webhooks de Tupperbox
-│   ├── chat_sync_service.py # Escaneo de historial, filtrado y parseo multimedia
-│   ├── image_service.py    # Segmentación y generación de imágenes por lotes
-│   ├── monitor_service.py  # Gestor de tareas asyncio y ciclo en segundo plano (MonitorManager)
-│   ├── inventory_service.py # Lógica de permisos de personaje, stock y consumo de ítems
-│   └── crafting_service.py # Lógica de verificación de materiales y crafteo atómico
+│   ├── dice_service.py     # Motor de tiradas D&D 5e con ventaja y críticos
+│   ├── inventory_service.py# Lógica de propiedad, stock y consumo de objetos
+│   ├── crafting_service.py # Verificación y deducción atómica de crafteo
+│   ├── tupper_service.py   # Detección de webhooks y motor TupperMatchEngine
+│   ├── chat_sync_service.py# Procesamiento de adjuntos y sincronización de mensajes
+│   ├── image_service.py    # Segmentación inteligente por peso visual
+│   ├── monitor_service.py  # Gestor de tareas asyncio de monitores en vivo
+│   ├── hot_reload_service.py# Recarga en caliente con validación sintáctica AST
+│   └── lua_service.py      # Sandbox para ejecución de scripts de ítems
 │
 ├── cogs/
-│   ├── __init__.py
-│   ├── chat_commands.py    # Comandos /generarchat y /forzaractualizacion
-│   ├── monitor_commands.py # Comandos /listarmonitores y /detenermonitor
-│   ├── character_commands.py # Comando /editarpersonaje
-│   ├── admin_commands.py   # Comandos /configuracion y /spam_ping
-│   ├── inventory_commands.py # Comandos públicos /inventario, /transferir, /usar_item, /vincular_personaje
-│   ├── crafting_commands.py  # Comandos públicos /recetas y /craftear
-│   └── admin_rpg_commands.py # Comandos Bot Admin /item_crear, /item_dar, /item_quitar, /receta_crear, etc.
+│   ├── character_commands.py # Comandos /pj (panel, lista, editar, importar, vincular)
+│   ├── chat_commands.py      # Comandos /chat (generar, forzar, monitores, config, spam_ping)
+│   ├── crafting_commands.py  # Comandos /craft (recetas, fabricar)
+│   ├── dice_commands.py      # Comandos /roll y /dado
+│   ├── inventory_commands.py # Comandos /inv (ver, transferir, usar)
+│   └── admin_rpg_commands.py # Comandos /admin_rpg (gestión de catálogo y recetas)
 │
 ├── renderer/
-│   ├── __init__.py
-│   ├── captura.py          # BrowserRenderer singleton persistente (Playwright / Chromium)
-│   ├── index.html          # Plantilla HTML base del chat
-│   ├── mensajes.js         # Lógica JavaScript para inyectar burbujas y adjuntos
-│   ├── styles.css          # Estilos CSS de las burbujas, avatares y contenedor
-│   └── fuentes/            # Fuentes tipográficas (印品鸿蒙体.ttf corregida con kerning)
+│   ├── captura.py          # Singleton de BrowserRenderer (Playwright Chromium)
+│   ├── index.html          # Plantilla visual de mensajes
+│   ├── mensajes.js         # Constructor JavaScript de burbujas de chat
+│   ├── styles.css          # Estilos CSS de burbujas, avatares y contenedores
+│   └── fuentes/            # Tipografías integradas
 │
 ├── ui/
-│   ├── __init__.py
-│   ├── views.py            # Componentes interactivos de personajes (LadoView, EditPersonajeView)
-│   └── inventory_views.py  # Vistas estilo MythOS (InventoryView, TransferConfirmView, RecipesView)
+│   ├── views.py            # Vistas LadoView y EditPersonajeView con modales
+│   ├── character_views.py  # CharacterPanelView con selects interactivos
+│   └── inventory_views.py  # InventoryView, TransferConfirmView y RecipesView
 │
-├── data/
-│   ├── eridubot.sqlite     # Base de datos SQLite local
-│   └── exportaciones/      # Almacén de JSONs de conversaciones e imágenes temporales
+├── tests/
+│   ├── run_all.py          # Ejecutor maestro de la suite de pruebas
+│   ├── test_core.py        # Pruebas de configuración, formatters, permisos y DB
+│   ├── test_services.py    # Pruebas de dados, inventario, crafteo y Tupperbox
+│   ├── test_cogs_integrity.py # Pruebas de comandos, Cogs y seguridad
+│   └── test_optimizations.py # Pruebas de modo WAL, concurrencia y renderizado
 │
-└── TestHTML/               # Pruebas y bocetos de maquetación HTML/CSS
-    ├── TextBoxAzul.html
-    ├── TextBoxGris.html
-    └── index.html
+└── data/
+    ├── eridubot.sqlite     # Base de datos SQLite
+    └── exportaciones/      # Carpeta de capturas generadas y temporales
 ```
 
 ---
@@ -108,19 +103,20 @@ BotDiscord/
 ## 🛠️ Tecnologías y Librerías
 
 - **Lenguaje**: [Python 3.11+](https://www.python.org/)
-- **Biblioteca de Discord**: [discord.py](https://discordpy.readthedocs.io/) (v2.3+) con soporte para `app_commands` (Slash Commands) y Discord UI Components.
-- **Motor de Renderizado**: [Playwright para Python](https://playwright.dev/python/) ejecutando Chromium Headless.
-- **Base de Datos**: [aiosqlite](https://github.com/omnilib/aiosqlite) para operaciones asíncronas con SQLite.
-- **Variables de Entorno**: [python-dotenv](https://github.com/theskumar/python-dotenv).
-- **Frontend del Renderizador**: HTML5, CSS3 moderno (Flexbox, gradientes, clip-path) y JavaScript Vanilla ES6.
+- **Biblioteca de Discord**: [discord.py](https://discordpy.readthedocs.io/) (v2.3+) con soporte completo para `app_commands` (Slash Commands) y Discord UI Components.
+- **Motor de Renderizado**: [Playwright para Python](https://playwright.dev/python/) con Chromium Headless.
+- **Base de Datos**: [aiosqlite](https://github.com/omnilib/aiosqlite) con SQLite en modo WAL y foreign keys activas.
+- **Entorno y Variables**: [python-dotenv](https://github.com/theskumar/python-dotenv).
+- **Scripts de Ítems**: [lupa](https://github.com/scoder/lupa) (Lua Sandbox).
+- **Frontend del Renderizador**: HTML5, CSS3 moderno y JavaScript Vanilla ES6.
 
 ---
 
 ## 🚀 Instalación y Puesta en Marcha
 
 ### 1. Prerrequisitos
-- Python 3.11 o superior instalado en el sistema.
-- Git instalado (opcional, para clonar y control de versiones).
+- Python 3.11 o superior instalado.
+- Git instalado.
 
 ### 2. Clonar el Repositorio
 ```bash
@@ -146,157 +142,131 @@ source venv/bin/activate
 pip install -r requirements.txt
 ```
 
-### 5. Instalar los Binarios del Navegador para Playwright
-Playwright requiere descargar Chromium para realizar las capturas:
+### 5. Instalar los Binarios de Chromium para Playwright
 ```bash
 playwright install chromium
 ```
 
 ### 6. Configurar las Variables de Entorno
-Copia el archivo `.env.example` a un nuevo archivo `.env`:
+Copia el archivo `.env.example` a `.env`:
 ```bash
 copy .env.example .env   # En Windows
 cp .env.example .env     # En Linux/macOS
 ```
 
-Edita el archivo `.env` con tus credenciales (ver la siguiente sección).
+Edita el archivo `.env` e introduce tu `DISCORD_TOKEN`.
 
 ### 7. Iniciar el Bot
 ```bash
 python bot.py
 ```
-Al iniciar, el bot creará automáticamente las tablas SQLite en `data/eridubot.sqlite` si no existen y sincronizará los comandos Slash con Discord (`tree.sync()`).
+Al iniciar, el bot inicializará la base de datos SQLite en modo WAL, arrancará la instancia compartida de Chromium y sincronizará los comandos Slash con Discord.
+
+---
+
+## 🧪 Ejecución de la Suite de Pruebas
+
+El proyecto cuenta con una suite completa de **33 pruebas de regresión** que validan el comportamiento de todas las capas:
+
+```bash
+# Ejecutor maestro con reporte formateado
+python tests/run_all.py
+
+# O mediante el descubridor estándar de Python
+python -m unittest discover tests
+```
 
 ---
 
 ## ⚙️ Variables de Entorno (`.env`)
 
-| Variable | Tipo | Descripción | Valor por Defecto / Ejemplo |
-| :--- | :--- | :--- | :--- |
-| `DISCORD_TOKEN` | String | Token de autenticación del bot de Discord. | *(Requerido)* |
-| `TUPPER_WEBHOOK_ID` | String / Int | ID por defecto del webhook de Tupperbox. | *(Opcional, autodetectable)* |
-| `ROL_ADMIN` | String | Nombre del rol en Discord necesario para usar comandos de administración. | `"Bot Admin"` |
-| `EXPORT_FOLDER` | String | Carpeta donde se guardan JSONs de sesión e imágenes generadas. | `"data/exportaciones"` |
-| `MAX_MENSAJES_TOTAL` | Integer | Límite máximo de mensajes permitidos al solicitar una captura. | `50` |
-| `MENSAJES_POR_IMAGEN` | Integer | Cantidad de mensajes agrupados por cada captura/imagen segmentada. | `10` |
-| `SEARCH_LIMIT` | Integer | Profundidad de búsqueda de mensajes en el historial del canal. | `500` |
+| Variable | Tipo | Requerido | Descripción | Valor por Defecto |
+| :--- | :--- | :---: | :--- | :--- |
+| `DISCORD_TOKEN` | String | **Sí** | Token de bot generado en el Discord Developer Portal. | — |
+| `ROL_ADMIN` | String | No | Nombre del rol de Discord con privilegios administrativos. | `"Bot Admin"` |
+| `TUPPER_WEBHOOK_ID` | String / Int | No | ID estático del webhook de Tupperbox (autodetectable si se omite). | `""` |
+| `DATABASE_PATH` | String | No | Ruta del archivo de base de datos SQLite. | `"data/eridubot.sqlite"` |
+| `EXPORT_FOLDER` | String | No | Directorio donde se guardan JSONs e imágenes generadas. | `"data/exportaciones"` |
+| `MAX_MENSAJES_TOTAL` | Integer | No | Límite máximo de mensajes al solicitar una captura de chat. | `50` |
+| `MENSAJES_POR_IMAGEN` | Integer | No | Cantidad de mensajes por cada imagen segmentada. | `10` |
+| `AUTO_RELOAD` | Boolean | No | Activa la recarga en caliente de archivos en desarrollo. | `true` |
 
 ---
 
-## ⌨️ Comandos Slash
+## ⌨️ Guía Rápida de Comandos Slash
 
 ### 1. Inventario (`/inv`)
-| Comando | Permisos | Parámetros | Descripción |
-| :--- | :--- | :--- | :--- |
-| `/inv ver` | Público | `personaje` *(str, opc)* | Muestra el inventario interactivo estilo MythOS con botones ◀, ▶ y Close. Si se omite, muestra tu personaje activo. |
-| `/inv transferir` | Público | `de_personaje` *(str)*, `a_personaje` *(str)*, `item` *(str)*, `cantidad` *(int)* | Transfiere objetos entre personajes con confirmación interactiva `[✅]` / `[❌]`. |
-| `/inv usar` | Público | `personaje` *(str)*, `item` *(str)*, `cantidad` *(int)* | Consume un ítem usable de tu personaje activo y ejecuta su mensaje/efecto. |
+| Comando | Acceso | Descripción |
+| :--- | :--- | :--- |
+| `/inv ver [personaje]` | Público | Muestra el panel interactivo de inventario con paginación. |
+| `/inv transferir` | Público | Transfiere objetos entre personajes de forma segura con confirmación. |
+| `/inv usar <personaje> <item> [cantidad]` | Público | Consume un ítem del inventario y aplica sus efectos. |
 
-### 2. Crafteo y Fórmulas (`/craft`)
-| Comando | Permisos | Parámetros | Descripción |
-| :--- | :--- | :--- | :--- |
-| `/craft recetas` | Público | *Ninguno* | Explora el catálogo de fórmulas de crafteo e ingredientes necesarios con paginación. |
-| `/craft fabricar` | Público | `personaje` *(str)*, `receta` *(str)*, `cantidad` *(int)* | Fabrica objetos consumiendo materiales del inventario de tu personaje activo. |
+### 2. Crafteo (`/craft`)
+| Comando | Acceso | Descripción |
+| :--- | :--- | :--- |
+| `/craft recetas` | Público | Consulta el libro de fórmulas e ingredientes disponibles. |
+| `/craft fabricar <personaje> <receta> [cantidad]` | Público | Fabrica objetos descontando ingredientes del inventario. |
 
-### 3. Gestión de Personajes y Tupperbox (`/pj`)
-| Comando | Permisos | Parámetros | Descripción |
-| :--- | :--- | :--- | :--- |
-| `/pj panel` | Público | *Ninguno* | Abre el panel interactivo visual con menús desplegables para activar y desactivar personajes en tu cupo. |
-| `/pj lista` | Público | *Ninguno* | Muestra el resumen de tus personajes activos (cupo máx. 3) y en reserva. |
-| `/pj vincular` | Público | `personaje` *(str)* | Activa un personaje de tu reserva personal para jugar con él. |
-| `/pj desvincular` | Público | `personaje` *(str)* | Pasa un personaje activo a tu reserva para liberar espacio en tu cupo (sin perder ítems). |
-| `/pj importar` | Público | `archivo` *(Attachment .json)* | Importa masivamente tus personajes de Tupperbox (`tul!export`) a tu reserva personal. |
-| `/pj guia` | Público | *Ninguno* | Muestra la guía interactiva paso a paso para sincronizar personajes de Tupperbox. |
-| `/pj editar` | Admin | `personaje` *(str)* | Menú interactivo para personalizar lado (izq/der), color de burbuja y color de texto. |
+### 3. Dados D&D (`/roll` y `/dado`)
+| Comando | Acceso | Descripción |
+| :--- | :--- | :--- |
+| `/roll [tirada] [modo] [motivo] [personaje] [secreto]` | Público | Lanza dados con soporte para modificadores, ventaja/desventaja y críticos. |
+| `/dado ...` | Público | Alias idéntico a `/roll`. |
 
-### 4. Administración RPG (`/admin_rpg` - Exclusivos `Bot Admin`)
-| Comando | Permisos | Parámetros | Descripción |
-| :--- | :--- | :--- | :--- |
-| `/admin_rpg item_crear` | Admin | `id`, `nombre`, `emoji`, `categoria`, `descripcion`, `es_usable`, `mensaje_uso` | Registra o actualiza un ítem en el catálogo maestro del servidor. |
-| `/admin_rpg item_dar` | Admin | `personaje`, `item`, `cantidad` | Añade stock de un objeto al inventario de cualquier personaje. |
-| `/admin_rpg item_quitar` | Admin | `personaje`, `item`, `cantidad` | Retira unidades de un objeto de la bolsa de un personaje. |
-| `/admin_rpg receta_crear` | Admin | `id`, `nombre`, `resultado_item`, `cantidad`, `ingredientes_texto`, `descripcion` | Crea una receta (admite que el ítem producido sea ingrediente para mejoras). |
-| `/admin_rpg receta_borrar` | Admin | `receta` *(str)* | Elimina una fórmula de crafteo del servidor. |
-| `/admin_rpg vincular_admin`| Admin | `personaje`, `usuario` *(Member)* | Reasigna o cambia forzosamente el dueño de un personaje. |
-| `/admin_rpg limite_personajes`| Admin | `cantidad` *(int, 1-25)* | Configura el cupo máximo de personajes activos por usuario para el servidor. |
+### 4. Personajes (`/pj`)
+| Comando | Acceso | Descripción |
+| :--- | :--- | :--- |
+| `/pj panel` | Público | Abre el panel visual para activar o desactivar personajes del cupo. |
+| `/pj lista` | Público | Consulta tus personajes activos y en reserva. |
+| `/pj editar <personaje>` | Público *(dueño)* | Modifica nombre, avatar, lado y colores HEX del personaje. |
+| `/pj importar <archivo>` | Público | Importa masivamente personajes desde un archivo `tul!export.json`. |
+| `/pj vincular <personaje>` | Público | Activa un personaje de tu reserva personal. |
+| `/pj desvincular <personaje>` | Público | Pasa un personaje activo a reserva liberando espacio en tu cupo. |
+| `/pj guia` | Público | Muestra la guía interactiva para vincular Tupperbox. |
 
-### 5. Captura de Chat y Servidor (`/chat`)
-| Comando | Permisos | Parámetros | Descripción |
-| :--- | :--- | :--- | :--- |
-| `/chat generar` | Admin | `cantidad` *(int)*, `title` *(str)*, `duracion` *(int)* | Genera la conversación en imágenes segmentadas e inicia el monitor en tiempo real. |
-| `/chat forzar` | Admin | *Ninguno* | Fuerza la actualización manual inmediata del chat generado previamente. |
-| `/chat monitores` | Admin | *Ninguno* | Lista todos los canales que tienen un monitor de auto-actualización activo. |
-| `/chat detener` | Admin | *Ninguno* | Detiene y cancela inmediatamente el monitor activo en el canal actual. |
-| `/chat configuracion` | Admin | `modo` (`TUPPER` / `TODO`) | Define el modo de captura para el servidor actual. |
-| `/chat spam_ping` | Público | `usuario` *(Member)*, `cantidad` *(int)* | Envía menciones continuas espaciadas por 1.5s (máx. 30,000). |
+### 5. Chat y Capturas (`/chat` - Requiere Rol Admin)
+| Comando | Acceso | Descripción |
+| :--- | :--- | :--- |
+| `/chat generar <cantidad> <titulo> [duracion]` | Bot Admin | Genera la conversación en imágenes e inicia el monitor en vivo. |
+| `/chat forzar` | Bot Admin | Actualiza manualmente la captura activa en el canal. |
+| `/chat monitores` | Bot Admin | Lista los canales con auto-actualización activa. |
+| `/chat detener` | Bot Admin | Cancela el monitor activo en el canal actual. |
+| `/chat configuracion <modo>` | Bot Admin | Define el modo de captura (`TUPPER` / `TODO`). |
+| `/chat spam_ping <usuario> <cantidad>` | Bot Admin | Envía menciones espaciadas de forma controlada. |
+
+### 6. Administración RPG (`/admin_rpg` - Requiere Rol Admin)
+| Comando | Acceso | Descripción |
+| :--- | :--- | :--- |
+| `/admin_rpg item_crear` | Bot Admin | Registra o modifica un ítem en el catálogo maestro. |
+| `/admin_rpg item_dar` | Bot Admin | Otorga unidades de un ítem al inventario de un personaje. |
+| `/admin_rpg item_quitar` | Bot Admin | Retira unidades de un ítem del inventario. |
+| `/admin_rpg receta_crear` | Bot Admin | Crea o actualiza una fórmula de crafteo. |
+| `/admin_rpg receta_borrar` | Bot Admin | Elimina una fórmula de crafteo del servidor. |
+| `/admin_rpg vincular_admin` | Bot Admin | Reasigna la propiedad de un personaje a otro usuario. |
+| `/admin_rpg limite_personajes` | Bot Admin | Establece el cupo máximo de personajes activos por usuario. |
 
 ---
 
-## 🔄 Flujo de Funcionamiento del Renderizado
+## 🐳 Despliegue con Docker
 
-```mermaid
-flowchart TD
-    A["Usuario ejecuta /generarchat"] --> B["Lectura de historial del canal (Search Limit)"]
-    B --> C{"Modo de Captura"}
-    C -->|"TUPPER"| D["Filtrar por Webhook ID de Tupperbox"]
-    C -->|"TODO"| E["Filtrar mensajes propios y comandos"]
-    D --> F["Recuperar o registrar personajes en SQLite"]
-    E --> F
-    F --> G["Parsear adjuntos, stickers, emojis y limpiar markdown"]
-    G --> H["Guardar datos en data/exportaciones/chat_CANALID.json"]
-    H --> I["Dividir mensajes adaptativamente por peso visual"]
-    I --> J["Playwright carga renderer/index.html y ejecuta renderer/mensajes.js"]
-    J --> K["Captura de pantalla recortada del contenedor .chat-container"]
-    K --> L["Envío de archivos PNG a Discord"]
-    L --> M["Activar tarea en segundo plano monitor_chat() (si duracion > 0)"]
+El proyecto incluye soporte listo para producción con **Docker y Docker Compose**:
+
+```bash
+# Construir e iniciar en segundo plano
+docker compose up -d --build
+
+# Ver registros en tiempo real
+docker compose logs -f
+
+# Detener el contenedor
+docker compose down
 ```
 
----
-
-## 🗄️ Esquema de la Base de Datos SQLite
-
-La base de datos se almacena en `data/eridubot.sqlite` con las siguientes tablas:
-
-### 1. `Personaje_Tabla`
-Configuración visual y propiedad de cada personaje:
-- `tupper_tag` (`TEXT PRIMARY KEY`): Identificador único o etiqueta sanitizada.
-- `nombre` (`TEXT NOT NULL`): Nombre para mostrar del personaje.
-- `lado` (`TEXT NOT NULL`): `"I"` para Izquierda o `"D"` para Derecha.
-- `avatar_url` (`TEXT`): URL del avatar del personaje.
-- `color` (`TEXT DEFAULT '#FFFFFF'`): Color de fondo de la burbuja (HEX).
-- `color_texto` (`TEXT DEFAULT '#000000'`): Color de la fuente del mensaje (HEX).
-- `owner_id` (`TEXT DEFAULT NULL`): ID de Discord del usuario propietario.
-
-### 2. `Items_Catalogo`
-Catálogo maestro de objetos del servidor:
-- `item_id` (`TEXT PRIMARY KEY`): Identificador único (slug ej. `pocion_leve`).
-- `nombre` (`TEXT NOT NULL`): Nombre mostrado del ítem.
-- `emoji` (`TEXT DEFAULT '📦'`): Emoji identificativo.
-- `categoria` (`TEXT DEFAULT 'Material'`): Consumible, Material, Arma, Ticket, Especial.
-- `descripcion` (`TEXT DEFAULT ''`): Descripción del ítem.
-- `es_usable` (`INTEGER DEFAULT 0`): `1` si puede consumirse con `/usar_item`.
-- `mensaje_uso` (`TEXT DEFAULT ''`): Mensaje al consumirlo.
-
-### 3. `Inventarios`
-Existencias de objetos por cada personaje:
-- `id` (`INTEGER PRIMARY KEY AUTOINCREMENT`)
-- `personaje_id` (`TEXT NOT NULL`): Vinculado a `Personaje_Tabla(tupper_tag)`.
-- `item_id` (`TEXT NOT NULL`): Vinculado a `Items_Catalogo(item_id)`.
-- `cantidad` (`INTEGER NOT NULL DEFAULT 1`).
-- Restricción: `UNIQUE(personaje_id, item_id)`.
-
-### 4. `Recetas_Crafteo` y `Recetas_Ingredientes`
-Fórmulas de fabricación:
-- `Recetas_Crafteo`: `receta_id`, `nombre`, `resultado_item_id`, `resultado_cantidad`, `descripcion`.
-- `Recetas_Ingredientes`: `id`, `receta_id`, `item_id`, `cantidad`.
-
-### 5. `Tupperbox_Webhooks` y `Guild_Config`
-Caché de webhooks detectados y configuración de servidores (`TUPPER` vs `TODO`).
+Para más detalles sobre despliegue en VPS u otros servidores, consulta [DEPLOYMENT.md](DEPLOYMENT.md).
 
 ---
 
-## 🛡️ Seguridad y Buenas Prácticas
+## 🛡️ Matriz de Seguridad
 
-1. **Protección del Token**: Nunca subas el archivo `.env` a repositorios públicos. El archivo `.gitignore` ya está configurado para excluirlo.
-2. **Rate Limits de Discord**: Los bucles de mensajes continuos (como `/spam_ping`) incorporan llamadas a `asyncio.sleep(1.5)` para respetar las cuotas de la API de Discord y prevenir bloqueos temporales por HTTP 429.
-3. **Limpieza de Archivos Temporales**: Las imágenes generadas localmente se eliminan de disco una vez enviadas a Discord para evitar saturar el almacenamiento.
+Para una descripción detallada de qué comandos están abiertos al público, cuáles requieren el rol `Bot Admin` y cuáles son exclusivos de moderación, consulta [PERMISOS_Y_SEGURIDAD.md](PERMISOS_Y_SEGURIDAD.md).
