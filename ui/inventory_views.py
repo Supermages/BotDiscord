@@ -1,4 +1,5 @@
 import math
+import asyncio
 import discord
 
 CHEST_THUMBNAIL = "https://cdn-icons-png.flaticon.com/512/2855/2855452.png"
@@ -101,10 +102,13 @@ class TransferConfirmView(discord.ui.View):
     """
     Vista de confirmación para transferencias seguras entre jugadores.
     """
-    def __init__(self, autor_id: int):
+    def __init__(self, autor_id: int, on_confirm=None, on_cancel=None):
         super().__init__(timeout=60)
         self.autor_id = autor_id
+        self.on_confirm = on_confirm
+        self.on_cancel = on_cancel
         self.confirmado = None
+        self.message = None
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
         if interaction.user.id != self.autor_id:
@@ -116,13 +120,42 @@ class TransferConfirmView(discord.ui.View):
     async def confirmar(self, interaction: discord.Interaction, button: discord.ui.Button):
         self.confirmado = True
         self.stop()
-        await interaction.response.defer()
+        if self.on_confirm:
+            if asyncio.iscoroutinefunction(self.on_confirm):
+                await self.on_confirm()
+            else:
+                self.on_confirm()
+        else:
+            await interaction.response.defer()
 
     @discord.ui.button(label="❌ Cancelar", style=discord.ButtonStyle.danger)
     async def cancelar(self, interaction: discord.Interaction, button: discord.ui.Button):
         self.confirmado = False
         self.stop()
-        await interaction.response.edit_message(content="❌ Transferencia cancelada.", embed=None, view=None)
+        if self.on_cancel:
+            if asyncio.iscoroutinefunction(self.on_cancel):
+                await self.on_cancel()
+            else:
+                self.on_cancel()
+        else:
+            await interaction.response.edit_message(content="❌ Transferencia cancelada.", embed=None, view=None)
+
+    async def on_timeout(self):
+        for item in self.children:
+            item.disabled = True
+        if getattr(self, "message", None):
+            try:
+                await self.message.edit(view=self)
+            except Exception:
+                pass
+        elif self.on_cancel:
+            try:
+                if asyncio.iscoroutinefunction(self.on_cancel):
+                    await self.on_cancel()
+                else:
+                    self.on_cancel()
+            except Exception:
+                pass
 
 
 class RecipesView(discord.ui.View):
@@ -136,6 +169,7 @@ class RecipesView(discord.ui.View):
         self.recetas_por_pagina = recetas_por_pagina
         self.pagina_actual = 0
         self.total_paginas = max(1, math.ceil(len(recetas) / recetas_por_pagina))
+        self.message = None
 
         self._actualizar_botones()
 
@@ -197,3 +231,12 @@ class RecipesView(discord.ui.View):
             await interaction.message.delete()
         except Exception:
             await interaction.response.edit_message(content="*Libro de recetas cerrado.*", embed=None, view=None)
+
+    async def on_timeout(self):
+        for item in self.children:
+            item.disabled = True
+        if getattr(self, "message", None):
+            try:
+                await self.message.edit(view=self)
+            except Exception:
+                pass

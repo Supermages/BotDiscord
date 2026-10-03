@@ -52,6 +52,12 @@ def set_db_path(path):
 async def inicializar_base():
     os.makedirs(os.path.dirname(DB_FILE), exist_ok=True)
     async with aiosqlite.connect(DB_FILE) as db:
+        # Optimización de concurrencia y persistencia:
+        # WAL (Write-Ahead Logging) permite múltiples lectores concurrentes sin bloquear escrituras
+        await db.execute("PRAGMA journal_mode=WAL;")
+        await db.execute("PRAGMA synchronous=NORMAL;")
+        await db.execute("PRAGMA foreign_keys=ON;")
+
         await db.execute('''
             CREATE TABLE IF NOT EXISTS Personaje_Tabla (
                 tupper_tag TEXT PRIMARY KEY,

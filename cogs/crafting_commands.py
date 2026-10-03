@@ -39,8 +39,8 @@ class CraftingCommands(commands.Cog):
             return await interaction.followup.send("📜 No hay recetas registradas en este momento.", ephemeral=True)
 
         view = RecipesView(todas, interaction.user.id)
-        embed = view.generar_embed()
-        await interaction.followup.send(embed=embed, view=view)
+        msg = await interaction.followup.send(embed=embed, view=view)
+        view.message = msg
 
     @craft_group.command(name="fabricar", description="Fabrica un objeto utilizando materiales del inventario de tu personaje.")
     @app_commands.describe(

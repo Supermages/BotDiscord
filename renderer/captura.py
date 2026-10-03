@@ -43,7 +43,7 @@ class BrowserRenderer:
                 await self._playwright.stop()
                 self._playwright = None
 
-    async def generar_captura(self, chat_json):
+    async def generar_captura(self, chat_json, output_path: str = None):
         """Genera una imagen PNG del chat utilizando una pestaña ligera del navegador compartido."""
         await self.start()
 
@@ -63,7 +63,8 @@ class BrowserRenderer:
             titulo = chat_json["Chat"]["titulo"]
             await page.evaluate("(t) => { document.getElementById('title').innerText = t; }", titulo)
 
-            # 3. Insertar mensajes dinámicamente
+            # 3. Preparar e insertar mensajes en lote (1 sola llamada IPC a Chromium)
+            mensajes_lote = []
             for mensaje in chat_json["Chat"]["mensajes"]:
                 personaje_id = mensaje["Personaje"]
                 personaje = await obtener_personaje(personaje_id)
@@ -73,7 +74,7 @@ class BrowserRenderer:
                 else:
                     nombre, lado, avatar_url, color, color_texto = personaje[:5]
 
-                datos_msg = {
+                mensajes_lote.append({
                     "container": ".chat-container",
                     "color": color,
                     "colorTexto": color_texto,
@@ -81,13 +82,15 @@ class BrowserRenderer:
                     "derecha": (lado == "D"),
                     "id": f"id{personaje_id}",
                     "texto": mensaje["Mensaje"],
-                    "adjuntos": mensaje["Adjuntos"]
-                }
+                    "adjuntos": mensaje.get("Adjuntos", [])
+                })
 
-                await page.evaluate("""(data) => {
+            await page.evaluate("""(mensajes) => {
+                for (const data of mensajes) {
                     const chat = new Chat(data.container, data.color, data.colorTexto, data.avatar, data.derecha, data.id);
                     chat.addMessage(data.texto, data.adjuntos);
-                }""", datos_msg)
+                }
+            }""", mensajes_lote)
 
             # 4. Espera reactiva: fuentes e imágenes cargadas (sin timeouts ciegos innecesarios)
             try:
@@ -125,8 +128,12 @@ class BrowserRenderer:
             if not clip_area:
                 raise RuntimeError("No se pudo medir el contenedor .chat-container")
 
-            timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S_%f")
-            filename = f"captura_{timestamp}.png"
+            if not output_path:
+                timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+                filename = f"captura_{timestamp}.png"
+            else:
+                filename = output_path
+                os.makedirs(os.path.dirname(os.path.abspath(filename)), exist_ok=True)
 
             # 6. Captura de pantalla recortada
             await page.screenshot(
@@ -143,9 +150,9 @@ class BrowserRenderer:
 # Singleton compartido a nivel de módulo
 _renderer = BrowserRenderer()
 
-async def generar_captura(chat_json):
+async def generar_captura(chat_json, output_path: str = None):
     """Función de compatibilidad que reutiliza el singleton del renderizador."""
-    return await _renderer.generar_captura(chat_json)
+    return await _renderer.generar_captura(chat_json, output_path=output_path)
 
 async def iniciar_navegador():
     """Inicia explícitamente el navegador compartido."""

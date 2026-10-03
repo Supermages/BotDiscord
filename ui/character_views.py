@@ -145,3 +145,12 @@ class CharacterPanelView(ui.View):
             item.disabled = True
         await interaction.response.edit_message(view=self)
         self.stop()
+
+    async def on_timeout(self):
+        for item in self.children:
+            item.disabled = True
+        if getattr(self, "message", None):
+            try:
+                await self.message.edit(view=self)
+            except Exception:
+                pass

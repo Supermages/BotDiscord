@@ -381,6 +381,7 @@ class InventoryCommands(commands.Cog):
 
         view = TransferConfirmView(interaction.user.id, callback_confirmar, callback_cancelar)
         await interaction.response.send_message(embed=embed_confirm, view=view)
+        view.message = await interaction.original_response()
 
     # ---------------------------------------------------------
     # /inv usar

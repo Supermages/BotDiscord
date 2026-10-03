@@ -128,7 +128,8 @@ class CharacterCommands(commands.Cog):
         guild_id = str(interaction.guild_id) if interaction.guild_id else None
         view = CharacterPanelView(interaction.user, guild_id=guild_id)
         await view.cargar_datos()
-        await interaction.followup.send(embed=view.generar_embed(), view=view, ephemeral=True)
+        msg = await interaction.followup.send(embed=view.generar_embed(), view=view, ephemeral=True)
+        view.message = msg
 
     # ==========================================
     # /pj lista

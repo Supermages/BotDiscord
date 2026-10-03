@@ -30,6 +30,15 @@ class LadoView(discord.ui.View):
         await interaction.response.edit_message(content=f"✅ {self.personaje_nombre} asignado a **Derecha**.", view=None)
         self.stop()
 
+    async def on_timeout(self):
+        for item in self.children:
+            item.disabled = True
+        if getattr(self, "message", None):
+            try:
+                await self.message.edit(view=self)
+            except Exception:
+                pass
+
 class EditPersonajeView(discord.ui.View):
     def __init__(self, interaction: discord.Interaction, personaje_id, nombre, lado, color, color_texto, avatar_url):
         super().__init__(timeout=180)
@@ -157,6 +166,15 @@ class EditPersonajeView(discord.ui.View):
         else:
             await interaction.edit_original_response(embed=embed, view=None)
         self.stop()
+
+    async def on_timeout(self):
+        for item in self.children:
+            item.disabled = True
+        if self.message:
+            try:
+                await self.message.edit(view=self)
+            except Exception:
+                pass
 
 class NombreModal(discord.ui.Modal):
     def __init__(self, view: EditPersonajeView):
