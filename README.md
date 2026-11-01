@@ -12,11 +12,12 @@
 * **Segmentación Adaptativa**: Algoritmo inteligente que pondera texto largo y adjuntos para dividir conversaciones en imágenes secuenciales legibles.
 * **Monitoreo en Tiempo Real**: `/chat generar` con parámetro de duración para vigilar un canal y actualizar automáticamente las imágenes a medida que los personajes rolean.
 * **Modos de Captura**: Modo Tupperbox (`TUPPER`) con deducción de autoría en memoria (`TupperMatchEngine`) y modo general (`TODO`).
+* **Render Seguro**: El contenido de los mensajes se escapa antes de renderizar, evitando inyección de HTML en las imágenes generadas.
 
 ### 🎒 2. Sistema de Inventario y Crafteo (Estilo MythOS)
 * **Inventario Interactivo (`/inv ver`)**: Panel con paginación interactiva (`◀`, `▶`), visualización de cantidad, categoría y emojis de ítems.
 * **Transferencias Seguras (`/inv transferir`)**: Traspaso atómico de objetos entre personajes con confirmación interactiva en dos pasos.
-* **Consumo de Ítems (`/inv usar`)**: Uso de consumibles con control de stock y soporte para scripts de efecto en Lua.
+* **Consumo de Ítems (`/inv usar`)**: Uso de consumibles con control de stock y soporte para scripts de efecto en Lua (sandbox aislado con presupuesto de ~10M instrucciones y timeout de ~15 s: un script malicioso o con bucles no puede colgar el bot).
 * **Fórmulas y Crafteo (`/craft`)**: Libro de recetas paginado (`/craft recetas`) y fabricación con deducción automática de materiales (`/craft fabricar`).
 
 ### 🎲 3. Sistema de Dados D&D 5e (`/roll` y `/dado`)
@@ -34,6 +35,7 @@
 * **SQLite Modo WAL**: `PRAGMA journal_mode=WAL` y `synchronous=NORMAL` para permitir múltiples lecturas simultáneas sin bloqueos de base de datos (`database is locked`).
 * **Timeouts de UI Seguros**: Todas las vistas (`discord.ui.View`) implementan `on_timeout()` para deshabilitar botones y selects al expirar la sesión, evitando errores de interacción en Discord.
 * **Hot Reload con Validación AST**: Monitor en segundo plano (`HotReloadManager`) que recarga módulos modificados sin reiniciar el bot, filtrando archivos con errores de sintaxis antes de ejecutarlos.
+* **Integridad Referencial Garantizada**: Las FOREIGN KEYs se aplican en todas las conexiones SQLite: solo puede otorgarse con `/admin_rpg item_dar` un ítem existente en el catálogo, y borrar un ítem del catálogo elimina en cascada sus copias en inventarios.
 
 ---
 
@@ -97,6 +99,8 @@ BotDiscord/
     ├── eridubot.sqlite     # Base de datos SQLite
     └── exportaciones/      # Carpeta de capturas generadas y temporales
 ```
+
+> **Nota sobre rutas de datos**: Todo el estado del bot vive en `data/` (`data/eridubot.sqlite`, `data/exportaciones/`). Si ves un `database.db` o una carpeta `exportaciones/` sueltos en la raíz del repo, son restos históricos en retirada; no se usan.
 
 ---
 
@@ -178,6 +182,25 @@ python -m unittest discover tests
 
 ---
 
+## 🛠️ Desarrollo y Depuración
+
+### Comandos ocultos de administración (prefijo `!`)
+Además de los Slash Commands, el bot expone dos comandos con prefijo reservados a administradores (mismo criterio de permisos que `/admin_rpg`):
+
+| Comando | Descripción |
+| :--- | :--- |
+| `!reload` | Recarga en caliente de extensiones: `!reload todos` recarga todos los cogs, `!reload <modulo>` recarga solo uno. Útil para aplicar cambios de código sin reiniciar el proceso. |
+| `!sync [este]` | Sincroniza el árbol de comandos Slash con Discord. Con el argumento `este`, sincroniza solo el servidor actual (más rápido en desarrollo). |
+
+### Logs y diagnóstico
+* **Consola**: Todos los eventos se registran en la consola con timestamps (arranque de cogs, errores, recargas, sincronizaciones).
+* **Endpoint `/health`**: `GET /health` (requiere `PORT` definida) devuelve estado del bot, identidad y cogs cargados con código 200.
+
+### Recarga automática de archivos
+Con `AUTO_RELOAD=true` (desarrollo), el `HotReloadManager` vigila el sistema de archivos y recarga los módulos modificados con validación sintáctica AST previa. **Ojo**: si la variable `PORT` está definida (típico en hosting en la nube), `AUTO_RELOAD` pasa a `false` por defecto, para nunca activar hot-reload en producción.
+
+---
+
 ## ⚙️ Variables de Entorno (`.env`)
 
 | Variable | Tipo | Requerido | Descripción | Valor por Defecto |
@@ -190,6 +213,10 @@ python -m unittest discover tests
 | `MAX_MENSAJES_TOTAL` | Integer | No | Límite máximo de mensajes al solicitar una captura de chat. | `50` |
 | `MENSAJES_POR_IMAGEN` | Integer | No | Cantidad de mensajes por cada imagen segmentada. | `10` |
 | `AUTO_RELOAD` | Boolean | No | Activa la recarga en caliente de archivos en desarrollo. | `true` |
+| `SEARCH_LIMIT` | Integer | No | Límite de mensajes escaneados al regenerar una captura de chat. | `500` |
+| `PORT` | Integer | No | Puerto del servidor de healthcheck web (`/health`); en nubes como Render o Koyeb lo inyecta el proveedor. Si está definida, `AUTO_RELOAD` pasa a `false` por defecto (ver nota). | — |
+
+> **Interacción `AUTO_RELOAD` ↔ `PORT`**: el hot-reload está pensado solo para desarrollo. Si `PORT` está definida (señal de entorno de nube/producción), el bot desactiva `AUTO_RELOAD` salvo que la fuerces explícitamente a `true`.
 
 ---
 
@@ -239,7 +266,7 @@ python -m unittest discover tests
 | Comando | Acceso | Descripción |
 | :--- | :--- | :--- |
 | `/admin_rpg item_crear` | Bot Admin | Registra o modifica un ítem en el catálogo maestro. |
-| `/admin_rpg item_dar` | Bot Admin | Otorga unidades de un ítem al inventario de un personaje. |
+| `/admin_rpg item_dar` | Bot Admin | Otorga unidades de un ítem al inventario de un personaje (el ítem debe existir previamente en el catálogo; las claves foráneas lo garantizan). |
 | `/admin_rpg item_quitar` | Bot Admin | Retira unidades de un ítem del inventario. |
 | `/admin_rpg receta_crear` | Bot Admin | Crea o actualiza una fórmula de crafteo. |
 | `/admin_rpg receta_borrar` | Bot Admin | Elimina una fórmula de crafteo del servidor. |
@@ -270,3 +297,8 @@ Para más detalles sobre despliegue en VPS u otros servidores, consulta [DEPLOYM
 ## 🛡️ Matriz de Seguridad
 
 Para una descripción detallada de qué comandos están abiertos al público, cuáles requieren el rol `Bot Admin` y cuáles son exclusivos de moderación, consulta [PERMISOS_Y_SEGURIDAD.md](PERMISOS_Y_SEGURIDAD.md).
+
+Consideraciones adicionales:
+
+* **Doble vía de acceso admin**: además del rol configurado en `ROL_ADMIN`, también se considera administrador a cualquier usuario con el permiso de Discord "Administrador" del servidor.
+* **Denegaciones efímeras**: los usuarios sin permisos que intenten comandos protegidos reciben una respuesta efímera (solo visible para ellos); ya no se publica ningún embed de denegación en el canal.

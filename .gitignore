@@ -44,3 +44,10 @@ Thumbs.db
 # --- Playwright (Reportes temporales si los hubiera) ---
 test-results/
 playwright-report/
+
+# Restos históricos en retirada del repo
+TestHTML/.tmp/
+
+
+# Extras
+.tmp/

@@ -19,7 +19,7 @@ if BASE_DIR not in sys.path:
 import discord
 from core.config import Config, BASE_DIR
 from core.formatters import limpiar_formato_discord
-from core.permissions import requiere_admin
+from core.permissions import requiere_admin, es_admin, PermisoDenegado
 from core.database import (
     inicializar_base,
     set_db_path,
@@ -105,22 +105,26 @@ class TestCoreConfigAndFormatters(unittest.TestCase):
 class TestCorePermissions(unittest.IsolatedAsyncioTestCase):
 
     async def test_requiere_admin_decorator(self):
-        """Verifica que el decorador requiere_admin permita solo a usuarios con el rol adecuado."""
+        """Verifica que el decorador requiere_admin permita solo a usuarios con permiso/rol admin."""
         mock_admin_role = MagicMock()
         mock_admin_role.name = Config.ROL_ADMIN
+        mock_admin_role.id = 111111
 
         mock_other_role = MagicMock()
         mock_other_role.name = "Jugador"
+        mock_other_role.id = 222222
 
-        # Usuario sin rol admin
+        def _member(roles):
+            member = MagicMock(spec=discord.Member)
+            member.roles = roles
+            # Sin permisos de servidor: la vía de paso debe ser el rol/permiso explícito
+            member.guild_permissions.administrator = False
+            member.guild_permissions.manage_guild = False
+            return member
+
+        # Usuario sin rol admin -> lanza PermisoDenegado (respuesta efímera vía on_tree_error)
         mock_interaction_deny = MagicMock(spec=discord.Interaction)
-        mock_member_deny = MagicMock(spec=discord.Member)
-        mock_member_deny.roles = [mock_other_role]
-        mock_interaction_deny.user = mock_member_deny
-        mock_msg = MagicMock()
-        mock_msg.delete = AsyncMock()
-        mock_interaction_deny.channel = MagicMock()
-        mock_interaction_deny.channel.send = AsyncMock(return_value=mock_msg)
+        mock_interaction_deny.user = _member([mock_other_role])
 
         check_dec = requiere_admin()
 
@@ -130,17 +134,23 @@ class TestCorePermissions(unittest.IsolatedAsyncioTestCase):
 
         predicate = dummy_command.__discord_app_commands_checks__[0]
 
-        result_deny = await predicate(mock_interaction_deny)
-        self.assertFalse(result_deny)
+        with self.assertRaises(PermisoDenegado):
+            await predicate(mock_interaction_deny)
 
-        # Usuario con rol admin
+        # Usuario con rol admin -> pasa
         mock_interaction_allow = MagicMock(spec=discord.Interaction)
-        mock_member_allow = MagicMock(spec=discord.Member)
-        mock_member_allow.roles = [mock_admin_role]
-        mock_interaction_allow.user = mock_member_allow
+        mock_interaction_allow.user = _member([mock_other_role, mock_admin_role])
 
         result_allow = await predicate(mock_interaction_allow)
         self.assertTrue(result_allow)
+
+        # Usuario con permiso Discord administrator -> también pasa (vía robusta)
+        member_discord_admin = _member([mock_other_role])
+        member_discord_admin.guild_permissions.administrator = True
+        mock_interaction_discord_admin = MagicMock(spec=discord.Interaction)
+        mock_interaction_discord_admin.user = member_discord_admin
+        result_discord_admin = await predicate(mock_interaction_discord_admin)
+        self.assertTrue(result_discord_admin)
 
 
 class TestCoreDatabase(unittest.IsolatedAsyncioTestCase):

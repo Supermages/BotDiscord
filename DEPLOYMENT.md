@@ -37,6 +37,8 @@ docker compose up -d --build
 - **Persistencia garantizada**: El volumen `./data:/app/data` asegura que la base de datos SQLite (`eridubot.sqlite`) y las exportaciones de chat se guarden en tu disco y nunca se pierdan al reiniciar o actualizar la imagen.
 - **Playwright Chromium preinstalado**: El `Dockerfile` ya incluye todas las dependencias del sistema operativo Linux, compiladores y fuentes necesarias para renderizar emojis y texto nítido.
 - **Reinicio automático**: Configurado con `restart: unless-stopped`.
+- **HEALTHCHECK integrado**: El `Dockerfile` define un `HEALTHCHECK` que consulta `GET /health` (vía `curl`, cada 60 s con margen de arranque de 30 s), de modo que Docker/orquestadores detecten colgadas del bot de forma autónoma.
+- **Dependencias pinneadas**: `requirements.txt` fija versiones exactas (`==`) para builds Docker reproducibles.
 
 ### Comandos de control con Docker:
 ```bash

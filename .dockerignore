@@ -13,3 +13,7 @@ data/eridubot.sqlite
 data/exportaciones/*
 test-results/
 playwright-report/
+database.db
+exportaciones/
+TestHTML/
+.tmp/

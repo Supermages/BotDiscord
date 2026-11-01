@@ -3,6 +3,7 @@ import os
 import logging
 import unicodedata
 import re
+from contextlib import asynccontextmanager
 from core.config import Config
 
 DB_FILE = Config.DATABASE_PATH
@@ -49,9 +50,30 @@ def set_db_path(path):
     global DB_FILE
     DB_FILE = path
 
+@asynccontextmanager
+async def conectar():
+    """
+    Abre una conexión a la base de datos con los PRAGMAs de integridad y
+    concurrencia aplicados. Debe usarse en CADA conexión, porque en SQLite
+    las PRAGMAs (salvo journal_mode) son por conexión:
+
+    - foreign_keys=ON: sin esto, las FOREIGN KEY y los ON DELETE CASCADE
+      declarados en las tablas NO se aplican y el inventario se corrompe
+      silenciosamente con filas huérfanas.
+    - busy_timeout (10 s): espera en vez de fallar de inmediato con
+      'database is locked' ante escrituras concurrentes.
+    - synchronous=NORMAL: compromiso latencia/durabilidad recomendado en WAL.
+    - timeout=10 en connect(): mismo límite a nivel de driver sqlite3.
+    """
+    async with aiosqlite.connect(DB_FILE, timeout=10) as db:
+        await db.execute("PRAGMA foreign_keys=ON;")
+        await db.execute("PRAGMA busy_timeout=10000;")
+        await db.execute("PRAGMA synchronous=NORMAL;")
+        yield db
+
 async def inicializar_base():
     os.makedirs(os.path.dirname(DB_FILE), exist_ok=True)
-    async with aiosqlite.connect(DB_FILE) as db:
+    async with conectar() as db:
         # Optimización de concurrencia y persistencia:
         # WAL (Write-Ahead Logging) permite múltiples lectores concurrentes sin bloquear escrituras
         await db.execute("PRAGMA journal_mode=WAL;")
@@ -186,6 +208,27 @@ async def inicializar_base():
         ''')
         await db.commit()
 
+        # Limpieza de filas huérfanas creadas cuando las FK no se aplicaban
+        # (p. ej. ítems entregados con texto libre en vez de item_id del catálogo)
+        borrados = await _limpiar_filas_huerfanas(db)
+        if any(borrados):
+            await db.commit()
+            logging.warning(f"[DB] Limpieza de huérfanos al inicializar: Inventarios={borrados[0]}, Ingredientes={borrados[1]}, Recetas={borrados[2]}")
+
+async def _limpiar_filas_huerfanas(db) -> tuple[int, int, int]:
+    """
+    Elimina filas huérfanas creadas históricamente cuando las FOREIGN KEY no
+    se aplicaban (ítems de inventario/recetas que ya no existen en el catálogo).
+    Retorna (inventarios_borrados, ingredientes_borrados, recetas_borradas).
+    """
+    cur = await db.execute('DELETE FROM Inventarios WHERE item_id NOT IN (SELECT item_id FROM Items_Catalogo)')
+    inv = cur.rowcount if cur.rowcount and cur.rowcount > 0 else 0
+    cur = await db.execute('DELETE FROM Recetas_Ingredientes WHERE item_id NOT IN (SELECT item_id FROM Items_Catalogo)')
+    ing = cur.rowcount if cur.rowcount and cur.rowcount > 0 else 0
+    cur = await db.execute('DELETE FROM Recetas_Crafteo WHERE resultado_item_id NOT IN (SELECT item_id FROM Items_Catalogo)')
+    rec = cur.rowcount if cur.rowcount and cur.rowcount > 0 else 0
+    return inv, ing, rec
+
 # ==========================================
 # 1. GESTIÓN DE PERSONAJES Y PROPIEDAD
 # ==========================================
@@ -194,7 +237,7 @@ async def obtener_personaje(tupper_tag):
     if tupper_tag in _cache_personajes:
         return _cache_personajes[tupper_tag]
 
-    async with aiosqlite.connect(DB_FILE) as db:
+    async with conectar() as db:
         async with db.execute(
             'SELECT nombre, lado, avatar_url, color, color_texto, owner_id, creator_id FROM Personaje_Tabla WHERE tupper_tag = ?', 
             (tupper_tag,)
@@ -205,7 +248,7 @@ async def obtener_personaje(tupper_tag):
             return res
 
 async def guardar_personaje(tupper_tag, nombre, lado, avatar_url, color="#FFFFFF", color_texto="#000000", owner_id=None, creator_id=None):
-    async with aiosqlite.connect(DB_FILE) as db:
+    async with conectar() as db:
         await db.execute('''
             INSERT INTO Personaje_Tabla (tupper_tag, nombre, lado, avatar_url, color, color_texto, owner_id, creator_id)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?)
@@ -228,7 +271,7 @@ async def guardar_personaje(tupper_tag, nombre, lado, avatar_url, color="#FFFFFF
     _cache_personajes[tupper_tag] = (nombre, lado, avatar_url, color, color_texto, owner_id, creator_id)
 
 async def actualizar_personaje(tupper_tag, nombre=None, avatar_url=None, lado=None, color=None, color_texto=None, owner_id=None, creator_id=None):
-    async with aiosqlite.connect(DB_FILE) as db:
+    async with conectar() as db:
         if nombre is not None:
             await db.execute('UPDATE Personaje_Tabla SET nombre = ? WHERE tupper_tag = ?', (str(nombre).strip(), tupper_tag))
         if avatar_url is not None:
@@ -248,7 +291,7 @@ async def actualizar_personaje(tupper_tag, nombre=None, avatar_url=None, lado=No
 
 async def vincular_owner_personaje(tupper_tag: str, owner_id: str):
     """Vincula forzosamente un personaje a un usuario de Discord como activo."""
-    async with aiosqlite.connect(DB_FILE) as db:
+    async with conectar() as db:
         await db.execute('UPDATE Personaje_Tabla SET owner_id = ?, creator_id = COALESCE(creator_id, ?) WHERE tupper_tag = ?', (str(owner_id), str(owner_id), tupper_tag))
         await db.commit()
     _cache_personajes.pop(tupper_tag, None)
@@ -257,7 +300,7 @@ async def obtener_limite_personajes(guild_id: str = None) -> int:
     """Obtiene el límite de personajes activos configurado para el servidor (por defecto 3)."""
     if not guild_id:
         return 3
-    async with aiosqlite.connect(DB_FILE) as db:
+    async with conectar() as db:
         async with db.execute('SELECT limite_personajes FROM Guild_Config WHERE guild_id = ?', (str(guild_id),)) as cursor:
             row = await cursor.fetchone()
             if row and row[0] is not None:
@@ -266,7 +309,7 @@ async def obtener_limite_personajes(guild_id: str = None) -> int:
 
 async def establecer_limite_personajes(guild_id: str, limite: int):
     """Establece el límite de personajes activos por usuario para el servidor."""
-    async with aiosqlite.connect(DB_FILE) as db:
+    async with conectar() as db:
         await db.execute('''
             INSERT INTO Guild_Config (guild_id, limite_personajes)
             VALUES (?, ?)
@@ -280,7 +323,7 @@ async def obtener_personajes_por_owner(owner_id: str) -> list[dict]:
 
 async def obtener_personajes_activos(user_id: str) -> list[dict]:
     """Retorna los personajes que el usuario tiene actualmente activos (owner_id = user_id)."""
-    async with aiosqlite.connect(DB_FILE) as db:
+    async with conectar() as db:
         db.row_factory = aiosqlite.Row
         async with db.execute(
             '''SELECT tupper_tag, nombre, lado, avatar_url, color, color_texto, owner_id, creator_id 
@@ -294,7 +337,7 @@ async def obtener_personajes_activos(user_id: str) -> list[dict]:
 
 async def obtener_personajes_vinculados_con_owner() -> list[dict]:
     """Retorna todos los personajes activos/vinculados a algún usuario en el sistema."""
-    async with aiosqlite.connect(DB_FILE) as db:
+    async with conectar() as db:
         db.row_factory = aiosqlite.Row
         async with db.execute(
             '''SELECT tupper_tag, nombre, lado, avatar_url, color, color_texto, owner_id, creator_id 
@@ -307,7 +350,7 @@ async def obtener_personajes_vinculados_con_owner() -> list[dict]:
 
 async def obtener_personajes_reserva(user_id: str) -> list[dict]:
     """Retorna los personajes en reserva del usuario (creator_id = user_id y sin activar)."""
-    async with aiosqlite.connect(DB_FILE) as db:
+    async with conectar() as db:
         db.row_factory = aiosqlite.Row
         async with db.execute(
             '''SELECT tupper_tag, nombre, lado, avatar_url, color, color_texto, owner_id, creator_id 
@@ -325,7 +368,10 @@ async def activar_personaje(user_id: str, tupper_tag: str, limite: int = 3) -> t
     Comprueba que el usuario no supere el límite permitido.
     """
     owner_str = str(user_id)
-    async with aiosqlite.connect(DB_FILE) as db:
+    async with conectar() as db:
+        # BEGIN IMMEDIATE: evita la carrera al contar el cupo de personajes activos
+        await db.execute("BEGIN IMMEDIATE")
+
         # 1. Comprobar cuántos personajes activos tiene el usuario
         async with db.execute('SELECT COUNT(*) FROM Personaje_Tabla WHERE owner_id = ?', (owner_str,)) as cursor:
             row = await cursor.fetchone()
@@ -371,7 +417,7 @@ async def desactivar_personaje(user_id: str, tupper_tag: str) -> tuple[bool, str
     Conserva creator_id = user_id para que nadie más pueda reclamarlo.
     """
     owner_str = str(user_id)
-    async with aiosqlite.connect(DB_FILE) as db:
+    async with conectar() as db:
         async with db.execute('SELECT owner_id, nombre FROM Personaje_Tabla WHERE tupper_tag = ?', (tupper_tag,)) as cursor:
             row = await cursor.fetchone()
 
@@ -398,7 +444,7 @@ async def buscar_personaje_por_nombre_db(nombre: str) -> tuple | None:
 
     termino_limpio = limpiar_termino_busqueda(nombre)
 
-    async with aiosqlite.connect(DB_FILE) as db:
+    async with conectar() as db:
         # 1. Búsqueda directa exacta o insensible a mayúsculas
         terminos_directos = [nombre]
         if termino_limpio and termino_limpio != nombre:
@@ -440,7 +486,7 @@ async def buscar_personaje_por_nombre_db(nombre: str) -> tuple | None:
 
 async def listar_todos_personajes() -> list[tuple]:
     """Lista todos los personajes registrados (útil para autocompletado)."""
-    async with aiosqlite.connect(DB_FILE) as db:
+    async with conectar() as db:
         async with db.execute('SELECT tupper_tag, nombre, owner_id, creator_id FROM Personaje_Tabla ORDER BY nombre ASC') as cursor:
             return await cursor.fetchall()
 
@@ -451,7 +497,7 @@ async def auto_vincular_o_crear_personaje(tupper_name: str, avatar_url: str, use
     """
     tupper_tag = tupper_name.strip()
     owner_str = str(user_id)
-    async with aiosqlite.connect(DB_FILE) as db:
+    async with conectar() as db:
         async with db.execute('SELECT owner_id, creator_id, avatar_url FROM Personaje_Tabla WHERE tupper_tag = ?', (tupper_tag,)) as cursor:
             row = await cursor.fetchone()
             
@@ -492,7 +538,7 @@ async def importar_tuppers_batch(owner_id: str, tuppers: list[dict]) -> dict:
         "conflictos": []
     }
 
-    async with aiosqlite.connect(DB_FILE) as db:
+    async with conectar() as db:
         for t in tuppers:
             nombre = str(t.get("name", "")).strip()
             if not nombre:
@@ -535,7 +581,7 @@ async def importar_tuppers_batch(owner_id: str, tuppers: list[dict]) -> dict:
 
 async def crear_o_actualizar_item(item_id: str, nombre: str, emoji: str = "📦", categoria: str = "Material", descripcion: str = "", es_usable: int = 0, mensaje_uso: str = "", script_uso: str = None):
     iid = item_id.strip().lower()
-    async with aiosqlite.connect(DB_FILE) as db:
+    async with conectar() as db:
         await db.execute('''
             INSERT INTO Items_Catalogo (item_id, nombre, emoji, categoria, descripcion, es_usable, mensaje_uso, script_uso)
             VALUES (?, ?, ?, ?, ?, ?, ?, COALESCE(?, ''))
@@ -568,7 +614,7 @@ async def editar_item_catalogo(
     Retorna (éxito, mensaje, item_actualizado).
     """
     iid = item_id.strip().lower()
-    async with aiosqlite.connect(DB_FILE) as db:
+    async with conectar() as db:
         db.row_factory = aiosqlite.Row
         cur = await db.execute('SELECT * FROM Items_Catalogo WHERE item_id = ? OR LOWER(nombre) = LOWER(?)', (iid, item_id))
         actual = await cur.fetchone()
@@ -642,7 +688,7 @@ async def editar_item_catalogo(
 async def actualizar_script_item(item_id: str, script: str) -> bool:
     """Actualiza el script Lua específico de un ítem en el catálogo."""
     iid = item_id.strip().lower()
-    async with aiosqlite.connect(DB_FILE) as db:
+    async with conectar() as db:
         cursor = await db.execute(
             'UPDATE Items_Catalogo SET script_uso = ?, es_usable = CASE WHEN ? != "" THEN 1 ELSE es_usable END WHERE item_id = ? OR LOWER(nombre) = LOWER(?)', 
             (script, script.strip() if script else "", iid, item_id)
@@ -655,7 +701,7 @@ async def asignar_script_item(item_id: str, script_id: str | None) -> tuple[bool
     iid = item_id.strip().lower()
     sid = script_id.strip().lower() if script_id and script_id.strip().lower() not in ("none", "ninguno", "") else None
 
-    async with aiosqlite.connect(DB_FILE) as db:
+    async with conectar() as db:
         if sid:
             cur = await db.execute('SELECT 1 FROM Scripts_Catalogo WHERE script_id = ?', (sid,))
             if not await cur.fetchone():
@@ -677,7 +723,7 @@ async def asignar_script_item(item_id: str, script_id: str | None) -> tuple[bool
 async def crear_o_actualizar_script(script_id: str, nombre: str, descripcion: str = "", codigo: str = "") -> bool:
     """Crea o actualiza un script compartido en la biblioteca."""
     sid = re.sub(r'[^a-zA-Z0-9_\-]', '_', script_id.strip().lower())
-    async with aiosqlite.connect(DB_FILE) as db:
+    async with conectar() as db:
         await db.execute('''
             INSERT INTO Scripts_Catalogo (script_id, nombre, descripcion, codigo)
             VALUES (?, ?, ?, ?)
@@ -694,7 +740,7 @@ async def obtener_script(script_id: str) -> dict | None:
     if not script_id:
         return None
     sid = script_id.strip().lower()
-    async with aiosqlite.connect(DB_FILE) as db:
+    async with conectar() as db:
         db.row_factory = aiosqlite.Row
         async with db.execute(
             'SELECT * FROM Scripts_Catalogo WHERE script_id = ? OR LOWER(nombre) = LOWER(?)',
@@ -705,7 +751,7 @@ async def obtener_script(script_id: str) -> dict | None:
 
 async def listar_scripts() -> list[dict]:
     """Retorna todos los scripts compartidos registrados."""
-    async with aiosqlite.connect(DB_FILE) as db:
+    async with conectar() as db:
         db.row_factory = aiosqlite.Row
         async with db.execute('SELECT * FROM Scripts_Catalogo ORDER BY nombre ASC') as cursor:
             rows = await cursor.fetchall()
@@ -714,7 +760,7 @@ async def listar_scripts() -> list[dict]:
 async def eliminar_script(script_id: str) -> bool:
     """Elimina un script compartido y lo desasigna de los ítems asociados."""
     sid = script_id.strip().lower()
-    async with aiosqlite.connect(DB_FILE) as db:
+    async with conectar() as db:
         await db.execute('UPDATE Items_Catalogo SET script_id = NULL WHERE script_id = ?', (sid,))
         cur = await db.execute('DELETE FROM Scripts_Catalogo WHERE script_id = ?', (sid,))
         await db.commit()
@@ -722,7 +768,7 @@ async def eliminar_script(script_id: str) -> bool:
 
 async def obtener_item(item_id: str) -> dict | None:
     iid = item_id.strip().lower()
-    async with aiosqlite.connect(DB_FILE) as db:
+    async with conectar() as db:
         db.row_factory = aiosqlite.Row
         async with db.execute(
             'SELECT * FROM Items_Catalogo WHERE item_id = ? OR LOWER(nombre) = LOWER(?)', 
@@ -732,7 +778,7 @@ async def obtener_item(item_id: str) -> dict | None:
             return dict(row) if row else None
 
 async def listar_items_catalogo(categoria: str = None) -> list[dict]:
-    async with aiosqlite.connect(DB_FILE) as db:
+    async with conectar() as db:
         db.row_factory = aiosqlite.Row
         if categoria:
             query = 'SELECT * FROM Items_Catalogo WHERE LOWER(categoria) = LOWER(?) ORDER BY nombre ASC'
@@ -746,7 +792,7 @@ async def listar_items_catalogo(categoria: str = None) -> list[dict]:
 
 async def eliminar_item_catalogo(item_id: str) -> bool:
     iid = item_id.strip().lower()
-    async with aiosqlite.connect(DB_FILE) as db:
+    async with conectar() as db:
         cursor = await db.execute('DELETE FROM Items_Catalogo WHERE item_id = ?', (iid,))
         await db.commit()
         return cursor.rowcount > 0
@@ -757,7 +803,7 @@ async def eliminar_item_catalogo(item_id: str) -> bool:
 
 async def obtener_inventario_personaje(tupper_tag: str) -> list[dict]:
     """Retorna los ítems en el inventario de un personaje combinados con sus metadatos del catálogo."""
-    async with aiosqlite.connect(DB_FILE) as db:
+    async with conectar() as db:
         db.row_factory = aiosqlite.Row
         async with db.execute('''
             SELECT 
@@ -781,7 +827,7 @@ async def obtener_inventario_personaje(tupper_tag: str) -> list[dict]:
 
 async def obtener_cantidad_item(tupper_tag: str, item_id: str) -> int:
     iid = item_id.strip().lower()
-    async with aiosqlite.connect(DB_FILE) as db:
+    async with conectar() as db:
         async with db.execute(
             'SELECT cantidad FROM Inventarios WHERE personaje_id = ? AND item_id = ?', 
             (tupper_tag, iid)
@@ -795,7 +841,7 @@ async def modificar_cantidad_inventario(tupper_tag: str, item_id: str, delta: in
     Si la nueva cantidad es <= 0, elimina el registro. Retorna la nueva cantidad final.
     """
     iid = item_id.strip().lower()
-    async with aiosqlite.connect(DB_FILE) as db:
+    async with conectar() as db:
         async with db.execute(
             'SELECT cantidad FROM Inventarios WHERE personaje_id = ? AND item_id = ?', 
             (tupper_tag, iid)
@@ -833,7 +879,11 @@ async def transferir_item_atomico(origen_tag: str, destino_tag: str, item_id: st
 
     iid = item_id.strip().lower()
 
-    async with aiosqlite.connect(DB_FILE) as db:
+    async with conectar() as db:
+        # BEGIN IMMEDIATE: toma el candado de escritura ANTES de leer el stock
+        # para evitar la carrera check-then-act entre transferencias concurrentes.
+        await db.execute("BEGIN IMMEDIATE")
+
         # 1. Comprobar existencia del personaje destino
         async with db.execute('SELECT nombre FROM Personaje_Tabla WHERE tupper_tag = ?', (destino_tag,)) as cur:
             if not await cur.fetchone():
@@ -881,7 +931,7 @@ async def crear_receta(receta_id: str, nombre: str, resultado_item_id: str, resu
     rid = receta_id.strip().lower()
     res_id = resultado_item_id.strip().lower()
 
-    async with aiosqlite.connect(DB_FILE) as db:
+    async with conectar() as db:
         await db.execute('''
             INSERT INTO Recetas_Crafteo (receta_id, nombre, resultado_item_id, resultado_cantidad, descripcion)
             VALUES (?, ?, ?, ?, ?)
@@ -905,7 +955,7 @@ async def crear_receta(receta_id: str, nombre: str, resultado_item_id: str, resu
 
 async def obtener_receta(receta_id: str) -> dict | None:
     rid = receta_id.strip().lower()
-    async with aiosqlite.connect(DB_FILE) as db:
+    async with conectar() as db:
         db.row_factory = aiosqlite.Row
         async with db.execute('''
             SELECT 
@@ -938,7 +988,7 @@ async def obtener_receta(receta_id: str) -> dict | None:
         return receta
 
 async def listar_recetas() -> list[dict]:
-    async with aiosqlite.connect(DB_FILE) as db:
+    async with conectar() as db:
         db.row_factory = aiosqlite.Row
         async with db.execute('''
             SELECT 
@@ -951,24 +1001,32 @@ async def listar_recetas() -> list[dict]:
         ''') as cur:
             recetas = [dict(r) for r in await cur.fetchall()]
 
+        if not recetas:
+            return recetas
+
+        # Segunda consulta única para TODOS los ingredientes (evita N+1 por receta)
+        async with db.execute('''
+            SELECT 
+                ri.receta_id,
+                ri.item_id, 
+                ri.cantidad, 
+                COALESCE(c.nombre, ri.item_id) AS nombre,
+                COALESCE(c.emoji, '📦') AS emoji
+            FROM Recetas_Ingredientes ri
+            LEFT JOIN Items_Catalogo c ON ri.item_id = c.item_id
+        ''') as cur:
+            por_receta = {}
+            for ing in await cur.fetchall():
+                por_receta.setdefault(ing['receta_id'], []).append(dict(ing))
+
         for r in recetas:
-            async with db.execute('''
-                SELECT 
-                    ri.item_id, 
-                    ri.cantidad, 
-                    COALESCE(c.nombre, ri.item_id) AS nombre,
-                    COALESCE(c.emoji, '📦') AS emoji
-                FROM Recetas_Ingredientes ri
-                LEFT JOIN Items_Catalogo c ON ri.item_id = c.item_id
-                WHERE ri.receta_id = ?
-            ''', (r['receta_id'],)) as cur:
-                r['ingredientes'] = [dict(ing) for ing in await cur.fetchall()]
+            r['ingredientes'] = por_receta.get(r['receta_id'], [])
 
         return recetas
 
 async def eliminar_receta(receta_id: str) -> bool:
     rid = receta_id.strip().lower()
-    async with aiosqlite.connect(DB_FILE) as db:
+    async with conectar() as db:
         cursor = await db.execute('DELETE FROM Recetas_Crafteo WHERE receta_id = ?', (rid,))
         await db.execute('DELETE FROM Recetas_Ingredientes WHERE receta_id = ?', (rid,))
         await db.commit()
@@ -981,7 +1039,7 @@ async def eliminar_receta(receta_id: str) -> bool:
 async def guardar_tupperbox_webhook(guild_id, webhook_id):
     g_id = str(guild_id)
     w_id = str(webhook_id)
-    async with aiosqlite.connect(DB_FILE) as db:
+    async with conectar() as db:
         await db.execute('''
             INSERT OR REPLACE INTO Tupperbox_Webhooks (guild_id, webhook_id)
             VALUES (?, ?)
@@ -994,7 +1052,7 @@ async def obtener_tupperbox_webhook(guild_id):
     if g_id in _cache_webhooks:
         return (_cache_webhooks[g_id],)
 
-    async with aiosqlite.connect(DB_FILE) as db:
+    async with conectar() as db:
         async with db.execute('SELECT webhook_id FROM Tupperbox_Webhooks WHERE guild_id = ?', (g_id,)) as cursor:
             resultado = await cursor.fetchone()
             if resultado:
@@ -1003,7 +1061,7 @@ async def obtener_tupperbox_webhook(guild_id):
 
 async def set_modo_captura(guild_id, modo):
     g_id = str(guild_id)
-    async with aiosqlite.connect(DB_FILE) as db:
+    async with conectar() as db:
         await db.execute('''
             INSERT OR REPLACE INTO Guild_Config (guild_id, modo_captura)
             VALUES (?, ?)
@@ -1016,7 +1074,7 @@ async def get_modo_captura(guild_id):
     if g_id in _cache_guild_modo:
         return _cache_guild_modo[g_id]
 
-    async with aiosqlite.connect(DB_FILE) as db:
+    async with conectar() as db:
         async with db.execute('SELECT modo_captura FROM Guild_Config WHERE guild_id = ?', (g_id,)) as cursor:
             resultado = await cursor.fetchone()
             modo = resultado[0] if resultado else 'TUPPER'

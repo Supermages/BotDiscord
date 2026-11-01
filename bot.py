@@ -9,6 +9,7 @@ from renderer.captura import iniciar_navegador, cerrar_navegador
 from services.monitor_service import monitor_manager
 from services.hot_reload_service import hot_reload_manager
 from services.inventory_service import es_admin
+from core.permissions import PermisoDenegado
 
 logging.basicConfig(
     level=logging.INFO,
@@ -61,6 +62,20 @@ class EriduBot(commands.Bot):
         # 5. Gestor global de errores para App Commands
         async def on_tree_error(interaction: discord.Interaction, error: discord.app_commands.AppCommandError):
             cmd_name = interaction.command.name if interaction.command else "desconocido"
+
+            # Errores de permisos/checks: respuesta efímera clara, sin loguearse como error
+            if isinstance(error, (PermisoDenegado, discord.app_commands.CheckFailure)):
+                mensaje = getattr(error, "mensaje", None) or "No tienes permisos para usar este comando."
+                logging.info(f"[Tree] Permiso denegado en /{cmd_name}: {mensaje}")
+                try:
+                    if not interaction.response.is_done():
+                        await interaction.response.send_message(f"⛔ Permiso denegado: {mensaje}", ephemeral=True)
+                    else:
+                        await interaction.followup.send(f"⛔ Permiso denegado: {mensaje}", ephemeral=True)
+                except Exception:
+                    pass
+                return
+
             logging.error(f"[Tree Error] En /{cmd_name}: {error}", exc_info=error)
             msg = "⚠️ Ha ocurrido un error inesperado al ejecutar esta acción. Se ha registrado en la consola para su revisión."
             try:

@@ -98,9 +98,9 @@ class ChatCommands(commands.Cog):
                         await guardar_personaje(tupper_tag, personaje_nombre, lado, avatar_url, "#FFFFFF", "#000000")
                         try:
                             await aviso.delete()
-                        except:
+                        except Exception:
                             pass
-                    except:
+                    except Exception:
                         lado = "I"
                         await guardar_personaje(tupper_tag, personaje_nombre, lado, avatar_url)
                 else:
@@ -197,17 +197,38 @@ class ChatCommands(commands.Cog):
                 with open(json_filename, "w", encoding="utf-8") as f:
                     json.dump(chat_json, f, indent=4, ensure_ascii=False)
 
-            final_path = await generar_imagen_segmentada(chat_json, interaction.channel.id)
-
+            final_path = None
             try:
-                msg = await interaction.channel.fetch_message(mensaje_id)
-                await msg.edit(content="✅ (Actualizado manual)", attachments=[discord.File(final_path)])
-                if os.path.exists(final_path):
-                    os.remove(final_path)
-            except discord.NotFound:
-                return await interaction.followup.send("❌ No se encontró el mensaje original.")
+                final_path = await generar_imagen_segmentada(chat_json, interaction.channel.id)
 
-            await interaction.followup.send(embed=discord.Embed(title="✅ ¡Actualizado!", color=0x00B0F4))
+                try:
+                    msg = await interaction.channel.fetch_message(mensaje_id)
+                    await msg.edit(content="✅ (Actualizado manual)", attachments=[discord.File(final_path)])
+                except discord.NotFound:
+                    return await interaction.followup.send("❌ No se encontró el mensaje original.")
+
+                await interaction.followup.send(embed=discord.Embed(title="✅ ¡Actualizado!", color=0x00B0F4))
+            except (discord.HTTPException, discord.DiscordException) as e:
+                logging.error(f"ForzarChat: Discord rechazó la actualización en #{interaction.channel.name}: {e}", exc_info=True)
+                return await interaction.followup.send(embed=discord.Embed(
+                    title="❌ Error",
+                    description="Discord rechazó la actualización del chat (mensaje inválido o sin permisos).",
+                    color=0xFF0000
+                ))
+            except Exception as e:
+                logging.error(f"ForzarChat: Error inesperado actualizando el chat: {e}", exc_info=True)
+                return await interaction.followup.send(embed=discord.Embed(
+                    title="❌ Error",
+                    description="Hubo un error inesperado actualizando el chat renderizado.",
+                    color=0xFF0000
+                ))
+            finally:
+                # Limpieza del PNG temporal tanto en éxito como en fallo
+                if final_path and os.path.exists(final_path):
+                    try:
+                        os.remove(final_path)
+                    except OSError:
+                        pass
         else:
             await interaction.followup.send(embed=discord.Embed(
                 title="⚠️ Sin cambios",

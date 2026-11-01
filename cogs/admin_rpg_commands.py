@@ -441,11 +441,18 @@ class AdminRPGCommands(commands.Cog):
         if not p_info:
             return await interaction.response.send_message(f"❌ Personaje '{personaje}' no encontrado.", ephemeral=True)
 
+        # Resolver SIEMPRE al item_id real del catálogo: pasar texto libre corrompería
+        # el inventario (filas huérfanas invisibles al JOIN con el catálogo).
         it_data = await obtener_item(item)
-        nombre_it = it_data["nombre"] if it_data else item
-        emoji_it = it_data["emoji"] if it_data else "📦"
+        if not it_data:
+            return await interaction.response.send_message(
+                f"❌ Ítem '{item}' no existe en el catálogo. Créalo primero con `/admin_rpg item_crear` o revisa el identificador.",
+                ephemeral=True
+            )
+        nombre_it = it_data["nombre"]
+        emoji_it = it_data.get("emoji", "📦")
 
-        nueva_cantidad = await modificar_cantidad_inventario(p_info[0], item, cantidad)
+        nueva_cantidad = await modificar_cantidad_inventario(p_info[0], it_data["item_id"], cantidad)
 
         embed = discord.Embed(
             title="🎁 Entrega de Ítems Realizada",
@@ -473,11 +480,17 @@ class AdminRPGCommands(commands.Cog):
         if not p_info:
             return await interaction.response.send_message(f"❌ Personaje '{personaje}' no encontrado.", ephemeral=True)
 
+        # Resolver SIEMPRE al item_id real del catálogo (mismo motivo que item_dar).
         it_data = await obtener_item(item)
-        nombre_it = it_data["nombre"] if it_data else item
-        emoji_it = it_data["emoji"] if it_data else "📦"
+        if not it_data:
+            return await interaction.response.send_message(
+                f"❌ Ítem '{item}' no existe en el catálogo. Créalo primero con `/admin_rpg item_crear` o revisa el identificador.",
+                ephemeral=True
+            )
+        nombre_it = it_data["nombre"]
+        emoji_it = it_data.get("emoji", "📦")
 
-        nueva_cantidad = await modificar_cantidad_inventario(p_info[0], item, -cantidad)
+        nueva_cantidad = await modificar_cantidad_inventario(p_info[0], it_data["item_id"], -cantidad)
 
         embed = discord.Embed(
             title="🗑️ Retirada de Ítems Realizada",
@@ -678,7 +691,7 @@ class AdminRPGCommands(commands.Cog):
 
         await interaction.response.defer(ephemeral=True)
 
-        ok, msg_resultado, items_mostrados = lua_engine.ejecutar_script(
+        ok, msg_resultado, items_mostrados = await lua_engine.ejecutar_script_async(
             script=script,
             char_input=p_info[1],
             item_input=it_data["item_id"],

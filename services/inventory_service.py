@@ -1,5 +1,5 @@
 import discord
-from core.config import Config
+from core.permissions import es_admin  # noqa: F401 — reexportado (bot.py y cogs lo importan desde aquí)
 from core.database import (
     obtener_personaje,
     obtener_inventario_personaje,
@@ -9,12 +9,6 @@ from core.database import (
     vincular_owner_personaje,
     obtener_script
 )
-
-def es_admin(user: discord.Member | discord.User) -> bool:
-    """Comprueba si el usuario tiene el rol administrativo configurado."""
-    if isinstance(user, discord.Member):
-        return any(r.name == Config.ROL_ADMIN for r in user.roles)
-    return False
 
 def puede_gestionar_personaje(user: discord.Member | discord.User, personaje_info: tuple | dict) -> tuple[bool, str]:
     """
@@ -104,7 +98,8 @@ async def consumir_item(tupper_tag: str, item_id: str, cantidad: int = 1, user_i
             script_ejecutar = shared["codigo"].strip()
 
     if script_ejecutar:
-        ok, msg, ids_mostrados = lua_engine.ejecutar_script(
+        # Ejecución asíncrona del script Lua (no bloquea el event loop del bot)
+        ok, msg, ids_mostrados = await lua_engine.ejecutar_script_async(
             script=script_ejecutar,
             char_input=tupper_tag,
             item_input=item["item_id"],

@@ -39,9 +39,13 @@ def construir_embed_tirada(
     else:
         color = 0x5865F2
 
-    # 2. Título: motivo o fórmula
+    # 2. Título: motivo o fórmula (truncado para no superar el límite de 256
+    #    caracteres del embed y evitar un HTTPException 400)
     if motivo:
-        titulo = f"🎲 {motivo.strip()}"
+        motivo_limpio = motivo.strip()
+        if len(motivo_limpio) > 240:
+            motivo_limpio = motivo_limpio[:239].rstrip() + "…"
+        titulo = f"🎲 {motivo_limpio}"
     else:
         titulo = f"🎲 Tirada: `{resultado.formula}`"
 
@@ -137,7 +141,17 @@ class DiceCommands(commands.Cog):
             )
 
         embed = construir_embed_tirada(interaction, resultado, motivo=motivo, personaje_info=p_info)
-        await interaction.response.send_message(embed=embed, ephemeral=secreto)
+        try:
+            await interaction.response.send_message(embed=embed, ephemeral=secreto)
+        except discord.HTTPException as e:
+            logger.error(f"Error enviando el resultado de la tirada: {e}", exc_info=True)
+            try:
+                await interaction.followup.send(
+                    "❌ No se pudo enviar el resultado de la tirada (Discord rechazó el mensaje).",
+                    ephemeral=True
+                )
+            except discord.DiscordException:
+                logger.error("No se pudo enviar ni el resultado ni el mensaje de error de la tirada.")
 
     # ---------------------------------------------------------
     # /roll

@@ -30,3 +30,7 @@ VOLUME ["/app/data"]
 
 # Comando de inicio del bot
 CMD ["python", "bot.py"]
+
+# Healthcheck: comprueba el endpoint HTTP interno del bot
+HEALTHCHECK --interval=60s --timeout=10s --retries=3 --start-period=30s \
+    CMD-SHELL curl --fail -m 5 http://localhost:${PORT:-10000}/health || exit 1

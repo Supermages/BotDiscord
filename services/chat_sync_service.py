@@ -55,7 +55,11 @@ async def actualizar_chat_logica(channel: discord.TextChannel, chat_json: dict, 
     y los agrega al chat_json si cumplen las reglas del modo activo.
     """
     mensajes_guardados = chat_json["Chat"]["mensajes"]
-    mensajes_guardados_contenido = set(m["Mensaje"] for m in mensajes_guardados)
+    # Deduplicación por clave (autor, contenido): evita duplicados reales sin que
+    # dos usuarios distintos que escriban lo mismo se pierdan un mensaje.
+    mensajes_ya_vistos = set(
+        (m.get("Personaje"), m.get("Mensaje")) for m in mensajes_guardados
+    )
     nuevos_mensajes = []
     last_id = chat_json["Chat"].get("ultimo_id")
 
@@ -73,47 +77,54 @@ async def actualizar_chat_logica(channel: discord.TextChannel, chat_json: dict, 
             logging.warning(f"Monitor: No se detectó ID de Tupperbox en #{channel.name} (Modo estricto).")
             return False
 
-    # 2. Iterador de historial
+    # 2. Iterador de historial (cualquier error de Discord corta el barrido
+    #    de forma limpia conservando lo ya procesado)
     if last_id:
         iterator = channel.history(after=discord.Object(id=last_id))
     else:
         iterator = channel.history(limit=100)
 
-    async for msg in iterator:
-        procesar = False
+    try:
+        async for msg in iterator:
+            procesar = False
 
-        if modo_captura == 'TUPPER':
-            if msg.webhook_id and msg.author.id == tupperbox_id:
-                procesar = True
-        else:
-            if (bot_user_id is None or msg.author.id != bot_user_id) and not msg.content.startswith("!"):
-                procesar = True
+            if modo_captura == 'TUPPER':
+                if msg.webhook_id and msg.author.id == tupperbox_id:
+                    procesar = True
+            else:
+                if (bot_user_id is None or msg.author.id != bot_user_id) and not msg.content.startswith("!"):
+                    procesar = True
 
-        contenido_limpio = limpiar_formato_discord(msg.content)
-
-        if procesar and contenido_limpio not in mensajes_guardados_contenido:
-            personaje_nombre = msg.author.display_name
+            contenido_limpio = limpiar_formato_discord(msg.content)
             tupper_tag = re.sub(r'[^a-zA-Z0-9_]', '_', str(msg.author.name))
-            avatar_url = str(msg.author.display_avatar.url) if msg.author.display_avatar else ""
 
-            # Buscar o autoregistrar personaje en DB
-            personaje = await obtener_personaje(tupper_tag)
-            if not personaje:
-                lado = "I"
-                color, color_texto = "#FFFFFF", "#000000"
-                await guardar_personaje(tupper_tag, personaje_nombre, lado, avatar_url, color, color_texto)
-            elif avatar_url and "embed/avatars" not in avatar_url and (not personaje[2] or "embed/avatars" in str(personaje[2])):
-                await guardar_personaje(tupper_tag, personaje_nombre, personaje[1], avatar_url, personaje[3], personaje[4])
+            if procesar and (tupper_tag, contenido_limpio) not in mensajes_ya_vistos:
+                personaje_nombre = msg.author.display_name
+                avatar_url = str(msg.author.display_avatar.url) if msg.author.display_avatar else ""
 
-            adjuntos = procesar_adjuntos_mensaje(msg)
+                # Buscar o autoregistrar personaje en DB
+                personaje = await obtener_personaje(tupper_tag)
+                if not personaje:
+                    lado = "I"
+                    color, color_texto = "#FFFFFF", "#000000"
+                    await guardar_personaje(tupper_tag, personaje_nombre, lado, avatar_url, color, color_texto)
+                elif avatar_url and "embed/avatars" not in avatar_url and (not personaje[2] or "embed/avatars" in str(personaje[2])):
+                    await guardar_personaje(tupper_tag, personaje_nombre, personaje[1], avatar_url, personaje[3], personaje[4])
 
-            nuevos_mensajes.append({
-                "Personaje": tupper_tag,
-                "Mensaje": contenido_limpio,
-                "Adjuntos": adjuntos
-            })
+                adjuntos = procesar_adjuntos_mensaje(msg)
 
-            chat_json["Chat"]["ultimo_id"] = msg.id
+                nuevos_mensajes.append({
+                    "Personaje": tupper_tag,
+                    "Mensaje": contenido_limpio,
+                    "Adjuntos": adjuntos
+                })
+
+                chat_json["Chat"]["ultimo_id"] = msg.id
+    except (discord.HTTPException, discord.DiscordException) as e:
+        logging.error(
+            f"Monitor: Error de Discord recorriendo el historial en #{channel.name}: {e}. "
+            f"Se conservan {len(nuevos_mensajes)} mensajes ya procesados."
+        )
 
     if nuevos_mensajes:
         logging.info(f"Monitor: Se encontraron {len(nuevos_mensajes)} mensajes nuevos en #{channel.name}")
