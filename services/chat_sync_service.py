@@ -49,6 +49,14 @@ def procesar_adjuntos_mensaje(msg: discord.Message) -> list:
 
     return adjuntos
 
+def normalizar_tupper_tag(nombre) -> str:
+    """
+    Normaliza el tupper_tag para identidad/CSS: todo carácter fuera de
+    [a-zA-Z0-9_] se sustituye por '_'. Criterio único compartido con
+    services/chat_service (unificación de rutas de persistencia).
+    """
+    return re.sub(r'[^a-zA-Z0-9_]', '_', str(nombre))
+
 async def actualizar_chat_logica(channel: discord.TextChannel, chat_json: dict, solicitante=None, bot_user_id: int = None) -> bool:
     """
     Escanea el canal en busca de nuevos mensajes desde el último mensaje guardado
@@ -96,7 +104,7 @@ async def actualizar_chat_logica(channel: discord.TextChannel, chat_json: dict, 
                     procesar = True
 
             contenido_limpio = limpiar_formato_discord(msg.content)
-            tupper_tag = re.sub(r'[^a-zA-Z0-9_]', '_', str(msg.author.name))
+            tupper_tag = normalizar_tupper_tag(msg.author.name)
 
             if procesar and (tupper_tag, contenido_limpio) not in mensajes_ya_vistos:
                 personaje_nombre = msg.author.display_name

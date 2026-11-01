@@ -12,25 +12,10 @@ class Chat {
         const colorFondo = this.cssSeguro(this.color, 'transparent');
         const colorTexto = this.cssSeguro(this.colorText, 'inherit');
 
-        // Estilos dinámicos para el personaje (color de fondo, color de texto y colita de bocadillo)
-        const dynamicStyle = document.createElement('style');
-        dynamicStyle.textContent = `
-            .chat-bubble.${claseUsuario} {
-                background-color: ${colorFondo};
-                color: ${colorTexto};
-            }
-            .chat-bubble.${claseUsuario}::after {
-                content: "";
-                position: absolute;
-                ${this.derecha ? 'right' : 'left'}: -4px;
-                top: 8px;
-                width: 10px;
-                height: 10px;
-                background-color: ${colorFondo};
-                ${this.derecha ? 'clip-path: path("M 0 0 Q 0 5 10 3 Q 8 12 0 5 Z")' : 'clip-path: path("M 10 5 Q 2 12 0 3 Q 10 5 10 0 Z")'};
-            }
-        `;
-        document.head.appendChild(dynamicStyle);
+        // Estilos dinámicos del personaje (fondo, texto y colita del bocadillo) vía
+        // hoja compartida con dedup: solo se registran las reglas la primera vez
+        // que aparece esta combinación clave.
+        Chat._asegurarEstiloDinamico(claseUsuario, colorFondo, colorTexto, Boolean(this.derecha));
     }
 
     // ---------- Utilidades de seguridad (XSS / inyección) ----------
@@ -84,6 +69,50 @@ class Chat {
 
             return `<${cierre}${nombreLower}${attrsLimpios}>`;
         });
+    }
+
+    // ---------- Dedup de estilos dinámicos ----------
+
+    // Antes se creaba un <style> por mensaje (50 mensajes → 50 hojas casi idénticas
+    // acumuladas en el <head>). Ahora todas las reglas viven en UNA hoja compartida y
+    // solo se añaden las reglas de una clave (clase segura + colores + lado) la primera
+    // vez que se ve. La cascada resultante es idéntica: mismas reglas y mismo orden de
+    // inserción, así que los colores por personaje no cambian. Todos los valores que
+    // llegan aquí vienen ya pasados por claseSegura()/cssSeguro() en el constructor.
+    static _asegurarEstiloDinamico(claseUsuario, colorFondo, colorTexto, derecha) {
+        const clave = `${claseUsuario}|${colorFondo}|${colorTexto}|${derecha ? 'D' : 'I'}`;
+        if (Chat._clavesEstilo.has(clave)) return;
+
+        // Si la hoja compartida no está en el documento (página recargada o recreada),
+        // se vuelve a crear y el registro de claves parte vacío.
+        if (!Chat._hojaEstilos || !Chat._hojaEstilos.isConnected) {
+            Chat._hojaEstilos = document.createElement('style');
+            document.head.appendChild(Chat._hojaEstilos);
+            Chat._clavesEstilo.clear();
+        }
+
+        const lado = derecha ? 'right' : 'left';
+        const clip = derecha
+            ? 'clip-path: path("M 0 0 Q 0 5 10 3 Q 8 12 0 5 Z")'
+            : 'clip-path: path("M 10 5 Q 2 12 0 3 Q 10 5 10 0 Z")';
+
+        Chat._hojaEstilos.textContent += `
+            .chat-bubble.${claseUsuario} {
+                background-color: ${colorFondo};
+                color: ${colorTexto};
+            }
+            .chat-bubble.${claseUsuario}::after {
+                content: "";
+                position: absolute;
+                ${lado}: -4px;
+                top: 8px;
+                width: 10px;
+                height: 10px;
+                background-color: ${colorFondo};
+                ${clip};
+            }
+        `;
+        Chat._clavesEstilo.add(clave);
     }
 
     // ---------- Render de mensajes ----------
@@ -168,5 +197,9 @@ class Chat {
         this.container.appendChild(messageElement);
     }
 }
+
+// Registro compartido de la dedup de estilos (se reinicia con cada carga de página).
+Chat._hojaEstilos = null;
+Chat._clavesEstilo = new Set();
 
 window.Chat = Chat;

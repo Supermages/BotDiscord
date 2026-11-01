@@ -8,6 +8,12 @@ from core.database import obtener_personaje
 RENDERER_DIR = os.path.dirname(os.path.abspath(__file__))
 HTML_PATH = f"file://{os.path.join(RENDERER_DIR, 'index.html')}"
 
+# Límite superior de altura del contenedor a capturar (px CSS). Coincide con el alto del
+# viewport fijado en generar_captura (8000px); con device_scale_factor=2, rebasarlo
+# superaría el techo de rasterizado de Chromium (~16384px físicos) y la captura saldría
+# corta o fallaría al medir. El reparto en lotes lo hace services/image_service.py.
+MAX_ALTO_CONTENEDOR_PX = 8000
+
 class BrowserRenderer:
     def __init__(self):
         self._playwright = None
@@ -126,7 +132,25 @@ class BrowserRenderer:
             }""")
 
             if not clip_area:
-                raise RuntimeError("No se pudo medir el contenedor .chat-container")
+                logging.error(
+                    "[Playwright] No se pudo medir el contenedor .chat-container: "
+                    "el DOM no devolvió dimensiones. Revisa que la plantilla del renderer cargue correctamente."
+                )
+                raise RuntimeError("No se pudo medir el contenedor .chat-container (el DOM no devolvió dimensiones)")
+
+            alto_contenedor = clip_area.get("height") or 0
+            if alto_contenedor > MAX_ALTO_CONTENEDOR_PX:
+                logging.error(
+                    "[Playwright] Contenido demasiado alto para una sola captura: %.0fpx (límite %dpx). "
+                    "Reduce MENSAJES_POR_IMAGEN para que dividir_en_lotes_inteligentes reparta el chat en más imágenes.",
+                    alto_contenedor,
+                    MAX_ALTO_CONTENEDOR_PX,
+                )
+                raise RuntimeError(
+                    f"El chat excede el alto máximo capturable "
+                    f"({alto_contenedor:.0f}px > {MAX_ALTO_CONTENEDOR_PX}px). "
+                    f"Reparte los mensajes en más lotes antes de renderizar."
+                )
 
             if not output_path:
                 timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S_%f")

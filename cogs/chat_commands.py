@@ -1,9 +1,5 @@
-import os
-import json
-import re
 import asyncio
 import datetime
-import logging
 from datetime import timezone
 import discord
 from discord import app_commands
@@ -11,13 +7,39 @@ from discord.ext import commands
 
 from core.config import Config
 from core.permissions import requiere_admin
-from core.formatters import limpiar_formato_discord
-from core.database import obtener_personaje, guardar_personaje, get_modo_captura, set_modo_captura
+from core.database import set_modo_captura
 from ui.views import LadoView
-from services.tupper_service import detectar_tupperbox_id
-from services.chat_sync_service import procesar_adjuntos_mensaje, actualizar_chat_logica
-from services.image_service import generar_imagenes_por_lotes, generar_imagen_segmentada
+from services import chat_service
 from services.monitor_service import monitor_manager
+
+
+async def pedir_lado_interactivo(
+    interaction: discord.Interaction,
+    tupper_tag: str,
+    personaje_nombre: str,
+    avatar_url: str,
+) -> str:
+    """Pregunta el lado de un personaje nuevo con LadoView y espera respuesta (máx. 60 s).
+
+    Devuelve el lado elegido, o 'I' si no responde o si falla la interacción,
+    para no bloquear el render. La persistencia la hace el service.
+    """
+    try:
+        view = LadoView(interaction.user.id, tupper_tag, personaje_nombre, avatar_url)
+        aviso = await interaction.followup.send(
+            f"📢 **{personaje_nombre}** nuevo. ¿Lado?",
+            view=view,
+            ephemeral=True
+        )
+        await view.wait()
+        try:
+            await aviso.delete()
+        except Exception:
+            pass
+        return view.lado or "I"
+    except Exception:
+        return "I"
+
 
 class ChatCommands(commands.Cog):
     def __init__(self, bot: commands.Bot):
@@ -30,7 +52,7 @@ class ChatCommands(commands.Cog):
     )
 
     # ---------------------------------------------------------
-    # /chat generar
+    # /chat generar (adaptador fino: la orquestación vive en chat_service)
     # ---------------------------------------------------------
     @chat_group.command(name="generar", description="Genera un chat segmentado en varias imágenes.")
     @app_commands.describe(
@@ -53,182 +75,68 @@ class ChatCommands(commands.Cog):
             )
 
         await interaction.response.defer()
-        modo_captura = await get_modo_captura(interaction.guild_id)
-        mensajes_a_procesar = []
 
-        logging.info(f"GenerarChat: Iniciando en #{channel.name}. Modo: {modo_captura} | Cantidad: {cantidad}")
+        async def resolver_lado(tupper_tag: str, personaje_nombre: str, avatar_url: str) -> str:
+            return await pedir_lado_interactivo(interaction, tupper_tag, personaje_nombre, avatar_url)
 
-        if modo_captura == 'TUPPER':
-            tupperbox_id = await detectar_tupperbox_id(channel)
-            if not tupperbox_id:
-                return await interaction.followup.send("❌ No se detectó Tupperbox y el modo es 'Solo Tupper'.")
-
-            async for msg in channel.history(limit=Config.SEARCH_LIMIT):
-                if msg.webhook_id and msg.author.id == tupperbox_id:
-                    mensajes_a_procesar.append(msg)
-                    if len(mensajes_a_procesar) >= cantidad:
-                        break
-        else:
-            async for msg in channel.history(limit=Config.SEARCH_LIMIT):
-                if msg.author.id != self.bot.user.id and not msg.content.startswith("/"):
-                    mensajes_a_procesar.append(msg)
-                    if len(mensajes_a_procesar) >= cantidad:
-                        break
-
-        mensajes_a_procesar.reverse()
-
-        mensajes_json = []
-        for msg in mensajes_a_procesar:
-            tupper_tag = msg.author.name
-            personaje_nombre = tupper_tag.split(" - ")[0] if " - " in tupper_tag else tupper_tag
-            avatar_url = str(msg.author.display_avatar.url)
-
-            personaje = await obtener_personaje(tupper_tag)
-            if not personaje:
-                if modo_captura == 'TUPPER' or msg.author.id == interaction.user.id:
-                    try:
-                        view = LadoView(interaction.user.id, tupper_tag, personaje_nombre, avatar_url)
-                        aviso = await interaction.followup.send(
-                            f"📢 **{personaje_nombre}** nuevo. ¿Lado?", 
-                            view=view, 
-                            ephemeral=True
-                        )
-                        await view.wait()
-                        lado = view.lado or "I"
-                        await guardar_personaje(tupper_tag, personaje_nombre, lado, avatar_url, "#FFFFFF", "#000000")
-                        try:
-                            await aviso.delete()
-                        except Exception:
-                            pass
-                    except Exception:
-                        lado = "I"
-                        await guardar_personaje(tupper_tag, personaje_nombre, lado, avatar_url)
-                else:
-                    await guardar_personaje(tupper_tag, personaje_nombre, "I", avatar_url)
-
-            adjuntos = procesar_adjuntos_mensaje(msg)
-            mensajes_json.append({
-                "Personaje": tupper_tag,
-                "Mensaje": limpiar_formato_discord(msg.content),
-                "Adjuntos": adjuntos
-            })
-
-        timestamp = datetime.datetime.now(timezone.utc).strftime("%Y-%m-%d_%H-%M-%S")
-        titulo_real = title if title != "chat" else channel.name
-        last_id = mensajes_a_procesar[0].id if mensajes_a_procesar else None
-
-        chat_json = {
-            "Chat": {
-                "titulo": titulo_real,
-                "timestamp": timestamp,
-                "id": f"chat_{channel.id}_{timestamp}",
-                "mensajes": mensajes_json,
-                "canal_id": channel.id,
-                "mensaje_id": None,
-                "duracion_monitor": duracion,
-                "last_processed_message_id": last_id
-            }
-        }
-
-        json_path = os.path.join(Config.EXPORT_FOLDER, f"chat_{channel.id}.json")
-        async with monitor_manager.file_lock:
-            with open(json_path, "w", encoding="utf-8") as f:
-                json.dump(chat_json, f, indent=4, ensure_ascii=False)
+        async def publicar(contenido: str, archivos: list) -> discord.Message:
+            return await interaction.followup.send(content=contenido, files=archivos)
 
         try:
-            rutas = await generar_imagenes_por_lotes(chat_json, channel.id)
-            archivos = [discord.File(ruta) for ruta in rutas]
-
-            msg = await interaction.followup.send(
-                content=f"📸 Chat renderizado: **{titulo_real}** ({len(mensajes_json)} mensajes)", 
-                files=archivos
+            await chat_service.generar_chat(
+                channel=channel,
+                solicitante=interaction.user,
+                bot_user_id=self.bot.user.id,
+                cantidad=cantidad,
+                titulo=title,
+                duracion_monitor=duracion,
+                resolver_lado=resolver_lado,
+                publicar=publicar,
             )
-
-            for ruta in rutas:
-                if os.path.exists(ruta):
-                    os.remove(ruta)
-
-            chat_json["Chat"]["mensaje_id"] = msg.id
-            async with monitor_manager.file_lock:
-                with open(json_path, "w", encoding="utf-8") as f:
-                    json.dump(chat_json, f, indent=4, ensure_ascii=False)
-
-            if duracion > 0:
-                monitor_manager.registrar_monitor(
-                    channel=channel, 
-                    message_id=msg.id, 
-                    duracion_minutos=duracion, 
-                    solicitante=interaction.user, 
-                    bot_user_id=self.bot.user.id
-                )
-
-        except Exception as e:
-            logging.error(f"Error generando imágenes: {e}")
-            await interaction.followup.send("❌ Hubo un error generando las imágenes.")
+        except chat_service.ChatServiceError as e:
+            await interaction.followup.send(e.mensaje)
 
     # ---------------------------------------------------------
-    # /chat forzar
+    # /chat forzar (adaptador fino: la orquestación vive en chat_service)
     # ---------------------------------------------------------
     @chat_group.command(name="forzar", description="Fuerza la actualización del chat renderizado.")
     @requiere_admin()
     async def forzar(self, interaction: discord.Interaction):
         await interaction.response.defer()
-        json_filename = os.path.join(Config.EXPORT_FOLDER, f"chat_{interaction.channel.id}.json")
 
-        if not os.path.exists(json_filename):
-            embed = discord.Embed(title="❌ Error", description="No se ha generado un chat para este canal.", color=0xFF0000)
-            return await interaction.followup.send(embed=embed)
-
-        async with monitor_manager.file_lock:
-            with open(json_filename, "r", encoding="utf-8") as f:
-                chat_json = json.load(f)
-
-        mensaje_id = chat_json["Chat"].get("mensaje_id")
-        if not mensaje_id:
+        try:
+            cambios = await chat_service.forzar_actualizacion(
+                interaction.channel, interaction.user, self.bot.user.id
+            )
+        except chat_service.ChatJsonInexistente:
+            return await interaction.followup.send(embed=discord.Embed(
+                title="❌ Error",
+                description="No se ha generado un chat para este canal.",
+                color=0xFF0000
+            ))
+        except chat_service.SinMensajeOriginal:
             return await interaction.followup.send(embed=discord.Embed(
                 title="❌ Error",
                 description="No se encontró el mensaje original para actualizar.",
                 color=0xFF0000
             ))
+        except chat_service.MensajeOriginalNoEncontrado as e:
+            return await interaction.followup.send(e.mensaje)
+        except chat_service.ActualizacionRechazada as e:
+            return await interaction.followup.send(embed=discord.Embed(
+                title="❌ Error",
+                description=e.mensaje,
+                color=0xFF0000
+            ))
+        except chat_service.ErrorInesperado as e:
+            return await interaction.followup.send(embed=discord.Embed(
+                title="❌ Error",
+                description=e.mensaje,
+                color=0xFF0000
+            ))
 
-        cambios = await actualizar_chat_logica(interaction.channel, chat_json, interaction.user, self.bot.user.id)
         if cambios:
-            async with monitor_manager.file_lock:
-                with open(json_filename, "w", encoding="utf-8") as f:
-                    json.dump(chat_json, f, indent=4, ensure_ascii=False)
-
-            final_path = None
-            try:
-                final_path = await generar_imagen_segmentada(chat_json, interaction.channel.id)
-
-                try:
-                    msg = await interaction.channel.fetch_message(mensaje_id)
-                    await msg.edit(content="✅ (Actualizado manual)", attachments=[discord.File(final_path)])
-                except discord.NotFound:
-                    return await interaction.followup.send("❌ No se encontró el mensaje original.")
-
-                await interaction.followup.send(embed=discord.Embed(title="✅ ¡Actualizado!", color=0x00B0F4))
-            except (discord.HTTPException, discord.DiscordException) as e:
-                logging.error(f"ForzarChat: Discord rechazó la actualización en #{interaction.channel.name}: {e}", exc_info=True)
-                return await interaction.followup.send(embed=discord.Embed(
-                    title="❌ Error",
-                    description="Discord rechazó la actualización del chat (mensaje inválido o sin permisos).",
-                    color=0xFF0000
-                ))
-            except Exception as e:
-                logging.error(f"ForzarChat: Error inesperado actualizando el chat: {e}", exc_info=True)
-                return await interaction.followup.send(embed=discord.Embed(
-                    title="❌ Error",
-                    description="Hubo un error inesperado actualizando el chat renderizado.",
-                    color=0xFF0000
-                ))
-            finally:
-                # Limpieza del PNG temporal tanto en éxito como en fallo
-                if final_path and os.path.exists(final_path):
-                    try:
-                        os.remove(final_path)
-                    except OSError:
-                        pass
+            await interaction.followup.send(embed=discord.Embed(title="✅ ¡Actualizado!", color=0x00B0F4))
         else:
             await interaction.followup.send(embed=discord.Embed(
                 title="⚠️ Sin cambios",
@@ -315,7 +223,7 @@ class ChatCommands(commands.Cog):
     @chat_group.command(name="spam_ping", description="Envía un número de menciones consecutivas a un usuario.")
     @app_commands.describe(
         usuario="El usuario al que quieres mencionar", 
-        cantidad="Número de veces a enviar el ping (máximo 30000)"
+        cantidad="Número de veces que enviar el ping (máximo 30000)"
     )
     @requiere_admin()
     async def spam_ping(self, interaction: discord.Interaction, usuario: discord.Member, cantidad: int):
@@ -329,7 +237,7 @@ class ChatCommands(commands.Cog):
             return await interaction.response.send_message(embed=embed, ephemeral=True)
 
         if cantidad <= 0:
-            return await interaction.response.send_message("❌ La cantidad debe ser mayor a 0.", ephemeral=True)
+            return await interaction.response.send_message("❌ La cantidad debe ser mayor que 0.", ephemeral=True)
 
         await interaction.response.send_message(
             f"✅ Iniciando el envío de {cantidad} pings a {usuario.display_name}...", 
